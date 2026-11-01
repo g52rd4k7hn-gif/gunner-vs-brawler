@@ -1,0 +1,1795 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>枪手 vs 打手 — 火柴人格斗</title>
+<style>
+  html,body{margin:0;height:100%;background:#111;overflow:hidden;touch-action:none;overscroll-behavior:none;-webkit-user-select:none;user-select:none;
+    font-family:"Hiragino Sans GB","PingFang SC",sans-serif;}
+  #wrap{position:relative;width:100vw;height:100vh;display:flex;align-items:center;justify-content:center}
+  canvas{background:#faf9f5;max-width:100%;max-height:100%;box-shadow:0 20px 60px #000a;border-radius:6px}
+  #hud{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:min(94%,1200px);
+    display:flex;gap:12px;align-items:center;color:#eee;font-size:13px;pointer-events:none}
+  .bar{flex:1;height:16px;background:#0006;border:1px solid #0006;border-radius:8px;overflow:hidden}
+  .bar i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#e05a4a,#f0a35e);transition:width .1s}
+  .bar.right i{background:linear-gradient(90deg,#5ea8f0,#8ee0a0);float:right}
+  #touch{position:absolute;inset:0;pointer-events:none;display:none}
+  #touch.on{display:block}
+  #touch .pad{position:absolute;bottom:calc(18px + env(safe-area-inset-bottom));display:flex;gap:10px;pointer-events:auto}
+  #touch .pad.left{left:calc(16px + env(safe-area-inset-left))}
+  #touch .pad.right{right:calc(16px + env(safe-area-inset-right));flex-wrap:wrap;justify-content:flex-end;max-width:200px}
+  #touch button{
+    width:64px;height:64px;border-radius:50%;border:2px solid #ffffff33;
+    background:#00000055;color:#f2efe8;font-size:17px;font-family:inherit;
+    -webkit-tap-highlight-color:transparent;backdrop-filter:blur(4px);touch-action:none;
+  }
+  #touch button:active{background:#ffffff33;transform:scale(.94)}
+  @media (max-width:820px){
+    #hud{top:6px;font-size:11px}
+    .bar{height:11px}
+    #tip{display:none}
+    #msg{font-size:40px}
+  }
+  #rotate{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+    background:#111c;color:#f2efe8;font-size:18px;text-align:center;line-height:1.8;pointer-events:none}
+  @media (orientation:portrait) and (max-width:820px){ #rotate{display:flex} }
+  #tip{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);color:#8b8880;font-size:12px;pointer-events:none}
+  #msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:#2b2926;font-size:64px;font-weight:700;pointer-events:none;opacity:0;transition:opacity .2s}
+  #loadbar{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:360px;height:8px;
+    background:#0002;border-radius:4px;overflow:hidden}
+  #loadbar i{display:block;height:100%;width:0;background:#2b2926;transition:width .1s}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="cv" width="1280" height="720"></canvas>
+  <div id="hud">
+    <div class="bar"><i id="hp1"></i></div>
+    <div style="min-width:150px;text-align:center;opacity:.85"><span id="score">0 : 0</span><br><span style="font-size:11px;opacity:.7">三局两胜</span></div>
+    <div class="bar right"><i id="hp2"></i></div>
+  </div>
+  <div id="msg"></div>
+  <div id="loadbar"><i id="load"></i></div>
+  <div id="rotate">请横屏游玩<br><span style="font-size:13px;opacity:.65">横过来画面更大、按键更好按</span></div>
+  <div id="touch">
+    <div class="pad left">
+      <button data-k="a">◀</button>
+      <button data-k="d">▶</button>
+    </div>
+    <div class="pad right">
+      <button data-k="l">挡</button>
+      <button data-k="k">闪</button>
+      <button data-k="jump">跳</button>
+      <button data-k="heavy">重</button>
+      <button data-k="j">打</button>
+    </div>
+  </div>
+  <div id="tip">A/D 移动 · Shift 跑 · W 跳（可二段） · J 挥击（Shift+J 重击） · K 闪避 · L 拨挡（反弹子弹） · F1 调试</div>
+</div>
+<script src="atlas.js"></script>
+<script>
+const SPRITES = {
+  "bat_idle": {n: 29, loop: true},
+  "bat_shoulder_drop": {n: 19, loop: false},
+  "bat_walk": {n: 24, loop: true},
+  "bat_run": {n: 19, loop: true},
+  "bat_swing_h": {n: 17, loop: false},
+  "bat_swing_v": {n: 17, loop: false},
+  "bat_swing_low": {n: 17, loop: false},
+  "bat_uppercut": {n: 17, loop: false},
+  "bat_dodge_l": {n: 17, loop: false},
+  "bat_dodge_r": {n: 17, loop: false},
+  "bat_jump": {n: 15, loop: false},
+  "bat_leap_back": {n: 22, loop: false},
+  "bat_slide": {n: 17, loop: false},
+  "bat_dive": {n: 19, loop: false},
+  "bat_getup": {n: 19, loop: false},
+  "bat_stagger": {n: 17, loop: false},
+  "bat_kneel": {n: 24, loop: false},
+  "bat_taunt": {n: 22, loop: false},
+  "bat_parry": {n: 14, loop: false},
+  "gun_idle": {n: 29, loop: true},
+  "gun_raise": {n: 19, loop: false},
+  "gun_aim_am55": {n: 24, loop: true}, "gun_fire_am55": {n: 11, loop: false},
+  "gun_aim_am25": {n: 24, loop: true}, "gun_fire_am25": {n: 11, loop: false},
+  "gun_aim_ap0": {n: 24, loop: true}, "gun_fire_ap0": {n: 11, loop: false},
+  "gun_aim_ap18": {n: 24, loop: true}, "gun_fire_ap18": {n: 11, loop: false},
+  "gun_aim_up": {n: 29, loop: true},
+  "gun_aim_b": {n: 29, loop: true},
+  "gun_fire_b": {n: 11, loop: false},
+  "gun_aim_up_b": {n: 29, loop: true},
+  "gun_fire_up_b": {n: 11, loop: false},
+  "gun_fire_up": {n: 11, loop: false},
+  "gun_aim": {n: 43, loop: true},
+  "gun_fire": {n: 11, loop: false},
+  "gun_reload": {n: 38, loop: false},
+  "gun_backstep": {n: 22, loop: true},
+  "gun_dodge_l": {n: 17, loop: false},
+  "gun_dodge_r": {n: 17, loop: false},
+  "gun_dodge_side": {n: 17, loop: false},
+  "gun_dodge_back": {n: 17, loop: false},
+  "gun_block": {n: 29, loop: false},
+  "gun_butt": {n: 19, loop: false},
+  "gun_hop": {n: 19, loop: false},
+  "gun_run": {n: 17, loop: true},
+  "gun_leap_back": {n: 22, loop: false},
+  "gun_kneel_reload": {n: 38, loop: false},
+  "gun_hit": {n: 17, loop: false},
+  "gun_lower": {n: 22, loop: false},
+  "gun_club_h": {n: 17, loop: false},
+  "gun_club_v": {n: 17, loop: false},
+  "gun_club_low": {n: 17, loop: false},
+  "gun_club_upper": {n: 17, loop: false}
+};
+
+window.onerror = (m, src, ln) => { document.title = 'ERR ' + m + ' @' + ln; };
+
+const MAX_HP = 4000;          // 双方血量
+const CW = 1280, CH = 720, GROUND = 640, FPS = 24;
+const WORLD = CW * 20;                 // 地图放大 20 倍
+const GRAV = 2300, JUMP_V = 1400;      // 跳起约 425px（原来的 3 倍多）
+const DPR = Math.min(2, window.devicePixelRatio || 1);
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+cv.width = Math.round(CW * DPR); cv.height = Math.round(CH * DPR);
+const imgCache = {};
+let musketImg = new Image();
+const ACT = Object.keys(SPRITES);
+const DMG = {
+  brawlerSwing: 8,     // 打手横扫
+  brawlerHeavy: 200,   // 打手重击（固定 200）
+  chargeBonus: 8,      // 蓄满额外
+  gunRanged: 100,      // 枪手普通攻击（固定 100）
+  gunChargeBase: 9,    // 蓄能弹基础伤害（9 × 3^n）
+  gunMelee: 7,         // 枪手·近战枪托
+  reflect: 14,         // 反弹子弹
+};
+const BODY_H = 236;            // 屏幕上人物实际高度
+const LEAP_DIST = 500 + BODY_H;   // 后跳水平距离 = 原来的 500 + 一个身位 ≈ 736
+const LEAP_APEX = Math.round(2 * BODY_H);   // 后跳最高点 = 2 个身高 ≈ 472px
+const LEAP_RANGE = Math.round(BODY_H * 1.0);   // 贴身后跳的判定范围 ≈ 236px（一个身高）            // 屏幕上人物实际高度：clip 265→645 = 380px × 0.62
+const CHEST = 184;             // 胸口离地高度：clip 349 → (645-349)×0.62
+const MUZZLE_CLIP = {x: 410, y: 384};
+const MUZZLE_UP = {x: 484, y: 77};
+
+const EMB = window.__EMBED || null;
+function framePath(a,i){ return EMB ? EMB[a + ':' + i] : `actions/${a}/${String(i).padStart(4,'0')}.png`; }
+
+const ESSENTIAL = [
+  'bat_idle','bat_walk','bat_run','bat_jump','bat_swing_h','bat_swing_v','bat_hit','bat_kneel','bat_dodge','bat_parry',
+  'gun_idle','gun_backstep','gun_hit','gun_kneel_reload','gun_block','gun_club_h','gun_club_v',
+  'gun_aim_ap0','gun_fire_ap0','gun_aim_am25','gun_fire_am25','gun_aim_am55','gun_fire_am55',
+];
+function preload(done){
+  const ATLAS = window.__ATLAS || null;
+  const jobs = [];
+  if (ATLAS){
+    // 图集模式：一个动作一张图，53 个请求搞定
+    for (const a of ESSENTIAL) if (ATLAS[a]) jobs.push(['A:' + a, `atlases/${a}.webp`]);
+    for (const a of ACT) if (ATLAS[a] && !ESSENTIAL.includes(a)) jobs.push(['A:' + a, `atlases/${a}.webp`]);
+  } else {
+    const ordered = [];
+    for (const a of ESSENTIAL) if (SPRITES[a]) for (let i = 0; i < SPRITES[a].n; i++) ordered.push([a + ':' + i, framePath(a, i)]);
+    for (const a of ACT) if (!ESSENTIAL.includes(a)) for (let i = 0; i < SPRITES[a].n; i++) ordered.push([a + ':' + i, framePath(a, i)]);
+    jobs.push(...ordered);
+  }
+  jobs.push(['musket', window.__MUSKET || 'musket.png']);
+  const essentialN = ATLAS
+    ? ESSENTIAL.filter(a => ATLAS[a]).length + 1
+    : jobs.filter(([k]) => ESSENTIAL.includes(k.split(':')[0]) || k.startsWith('A:')).length;
+  let n = 0; const total = jobs.length, bar = document.getElementById('load');
+  let started = false;
+  const tick = ()=>{
+    n++;
+    const pct = n >= essentialN ? (n/total*100) : (n/essentialN*100*0.9);
+    if (bar) bar.style.width = Math.min(100, pct).toFixed(1) + '%';
+    if (!started && n >= essentialN){ started = true; done(); }
+    if (n >= total && !started){ started = true; done(); }
+  };
+  window.__errs = 0;
+  for (const [k, src] of jobs){
+    const im = new Image();
+    im.onload = tick;
+    im.onerror = ()=>{ window.__errs++; tick(); };
+    im.src = src; imgCache[k] = im;
+    if (k === 'musket') musketImg = im;
+  }
+  // 真正失败（连续 404/解码失败）才切备用版；单纯“慢”不切
+  setTimeout(()=>{
+    if (ATLAS && window.__errs >= 3){
+      document.title = '图集加载失败，切换备用版本…';
+      location.replace('game_offline.html');
+      return;
+    }
+    if (!window.__started) done();
+  }, 20000);
+}
+const DIAG = new URLSearchParams(location.search).get('diag') === '1';
+window.__diag = {calls: 0, nulls: 0, atlases: 0, sample: ''};
+function getFrame(a, i){
+  if (DIAG){
+    window.__diag.calls++;
+    const A0 = window.__ATLAS && window.__ATLAS[a];
+    if (A0 && imgCache['A:' + a] && imgCache['A:' + a].naturalWidth) window.__diag.atlases++;
+  }
+  const ATLAS = window.__ATLAS;
+  if (ATLAS && ATLAS[a]){
+    const A = ATLAS[a], img = imgCache['A:' + a];
+    if (!img || !img.naturalWidth){ if (DIAG) window.__diag.nulls++; return null; }
+    const k = Math.min(i, A.n - 1);
+    return {img, sx: (k % A.cols) * A.fw, sy: ((k / A.cols) | 0) * A.fh, sw: A.fw, sh: A.fh};
+  }
+  const im = imgCache[a + ':' + i] || imgCache[a + ':0'];
+  if (DIAG && (!im || !im.naturalWidth)) window.__diag.nulls++;
+  return (im && im.naturalWidth) ? {img: im, sx: 0, sy: 0, sw: 1280, sh: 720} : null;
+}
+
+// ── 地形：可以站上去、也会挡住子弹 ──
+const PLATFORMS = [];
+for (let i = 0; i < 26; i++){
+  PLATFORMS.push({x: 500 + i * (WORLD - 1000) / 26 + (i%2)*140,
+                  y: 230 + (i%3)*80, w: 220 + (i%2)*90, h: 26});
+}
+// ── 小物件：被挥击打飞 ──
+const PROPS = [];
+for (let i = 0; i < 40; i++){
+  PROPS.push({x: 600 + i * (WORLD - 1200) / 40, y: 0, vx: 0, vy: 0, rot: Math.random()*6,
+              spin: 0, alive: true, kind: i % 3, sz: 11 + (i % 3) * 5});
+}
+
+class Fighter{
+  constructor(o){
+    Object.assign(this, o);
+    this.maxHp = MAX_HP; this.hp = MAX_HP; this.state = 'idle'; this.frame = 0; this.t = 0;
+    this.y = 0; this.vy = 0; this.jumps = 0; this.stun = 0; this.invuln = 0;
+    this.hitDone = false; this.bulletDone = false; this.reloading = 0; this.closeT = 0;
+    this.slideT = 0; this.slideVx = 0;
+    this.dmgMult = 1; this.frenzy = false; this.frenzyCd = 0; this.frenzyLeft = 0;
+    this.reviving = 0; this.immortalCd = 0; this.reviveFull = false;
+    this.frenzyStacks = 0; this.frenzyCount = 0; this.pierceShot = false; this.pierceDmg = 0; this.chargeWarn = 0;
+    this.knockT = 0; this.knockDir = 1; this.knockX0 = 0; this.knockDist = 0;
+    this.shield = 0;
+    this.storedDmg = 0; this.takenTotal = 0; this.counterCd = 0;
+  }
+  get act(){ return this.acts[this.state] || this.acts.idle; }
+  set(s, o = {}){
+    if (this.state === s && !o.force) return;
+    this.state = s; this.frame = 0; this.t = 0; this.hitDone = false;
+  }
+  update(dt){
+    this.t += dt;
+    const sp = SPRITES[this.act];
+    this.frame = sp.loop ? Math.floor(this.t*FPS) % sp.n : Math.min(sp.n-1, Math.floor(this.t*FPS));
+    if (this.stun > 0) this.stun -= dt;
+    if (this.invuln > 0) this.invuln -= dt;
+    if (this.hurtT > 0) this.hurtT -= dt;
+  }
+  done(){ return this.t >= SPRITES[this.act].n / FPS; }
+  hurt(dmg, dir){ applyDamage(this, dmg, dir); }
+}
+
+// 统一的伤害结算：打手「承受」、枪手「狂化吸血」、双方血量/硬直
+function applyDamage(t, dmg, dir){
+  let real = dmg, log = '';
+  if (t === p1){                                   // 打手·承受：掷骰子
+    if (Math.random() < SK.endureEven){            // 偶数：本次免伤，回一半血，并按原始伤害存池
+      real = 0;
+      const heal = dmg * 0.5;
+      p1.hp = Math.min(p1.maxHp, p1.hp + heal);
+      p1.takenTotal = Math.min(SK.counterCap, p1.takenTotal + dmg);
+      log = '偶数 · 免疫 + 回血 + 存池';
+      floatText(t.x, GROUND - BODY_H - 20, `免疫 +${Math.round(heal)} · 存 ${Math.round(dmg)}`, '#2fa85a');
+    } else {                                       // 奇数：吃一半伤害，双倍原始伤害存池
+      real = dmg * 0.5;
+      p1.takenTotal = Math.min(SK.counterCap, p1.takenTotal + dmg * 2);
+      log = '奇数 · 半伤 + 双倍存池';
+      floatText(t.x, GROUND - BODY_H - 20, `奇数 · 存 ${Math.round(dmg * 2)}`, '#c0392b');
+    }
+  }
+  if (t === p2 && p2.frenzy) real *= 1;            // 狂化不加受伤
+  if (t.shield > 0 && real > 0){                    // 护盾先抗
+    const absorbed = Math.min(t.shield, real);
+    t.shield -= absorbed; real -= absorbed;
+  }
+  t.hp = Math.max(0, t.hp - real);
+  if (real > 0) floatText(t.x, GROUND - BODY_H * 0.75 - (t.y||0), '-' + Math.round(real), '#2b2926');
+  if (window.__lastHit) window.__lastHit.log = log;
+  t.stun = 0.18; t.invuln = 0.12; t.hurtT = 0.12;
+  if (t.leapT > 0){ t.leapT = 0; t.y = 0; t.leapShot = false; }
+  if (t === p2 && (t.state === 'aim' || t.state === 'aimUp')) t.wetShot = true;
+  t.set(t.hp <= 0 ? 'ko' : 'hit', {force:true});
+  if (t.hp <= 0) onDown(t);
+}
+
+// 还击对护盾：护盾按比例吃伤害（盾越多挡得越多）
+function applyCounterDamage(t, amount, dir){
+  if (t.shield > 0){
+    const factor = Math.min(1, t.shield / 1000);
+    const toShield = Math.min(t.shield, amount * factor);
+    t.shield -= toShield;
+    amount -= toShield;
+  }
+  if (amount > 0) t.hurt(amount, dir);
+}
+
+// 谁倒下了
+function onDown(t){
+  if (t === p2 && p2.immortalCd <= 0 && p2.reviving <= 0){   // 枪手·不朽（冷却好了就能再触发）
+    p2.reviving = SK.reviveTime;
+    p2.immortalCd = SK.immortalCd;
+    p2.reviveFull = Math.random() < SK.immortalChance;
+    p2.hp = 0;
+    p2.set('ko', {force:true});
+    showSkill('枪手 · 不朽', '复活读条 5 秒', '#b23cff');
+    boom(p2.x, GROUND - CHEST * 0.6, 200, 'rgba(178,60,255,');
+    return;
+  }
+}
+
+// 飘字 + 视觉特效
+function showSkill(title, sub, color){
+  const m = document.getElementById('msg');
+  m.textContent = title + (sub ? ' · ' + sub : '');
+  m.style.opacity = 1; m.style.fontSize = '40px'; m.style.color = color || '#2b2926';
+  setTimeout(()=>{ m.style.opacity = 0; m.style.fontSize = '64px'; m.style.color = '#2b2926'; }, 900);
+}
+function boom(x, y, r, rgba){
+  for (let i = 0; i < 18; i++){
+    const a = Math.PI * 2 * i / 18;
+    sparks.push({x: x + Math.cos(a)*r*0.3, y: y + Math.sin(a)*r*0.3, t: 0, big: true, rgba: rgba || 'rgba(255,214,120,'});
+  }
+}
+
+const BRAWLER = {idle:'bat_idle', walk:'bat_walk', run:'bat_run', jump:'bat_jump',
+  swing:'bat_swing_h', swing2:'bat_swing_v', dodge:'bat_slide', parry:'bat_parry',
+  hit:'bat_stagger', ko:'bat_kneel', leap:'bat_leap_back'};
+const GUNNER = {idle:'gun_idle', walk:'gun_idle', run:'gun_run', jump:'gun_idle', leap:'gun_leap_back',
+  aim:'gun_aim_b', fire:'gun_fire_b', aimUp:'gun_aim_up_b', fireUp:'gun_fire_up_b',
+  aimM55:'gun_aim_am55', fireM55:'gun_fire_am55',
+  aimM25:'gun_aim_am25', fireM25:'gun_fire_am25',
+  aimP0:'gun_aim_ap0',   fireP0:'gun_fire_ap0',
+  aimP18:'gun_aim_ap18', fireP18:'gun_fire_ap18', reload:'gun_reload', block:'gun_block',
+  club:'gun_club_h', club2:'gun_club_v', retreat:'gun_backstep', reload:'gun_kneel_reload',
+  hit:'gun_hit', ko:'gun_kneel_reload', dodge:'gun_dodge_l'};
+
+const START_X = WORLD*0.46;
+const p1 = new Fighter({name:'打手', x: START_X - 210, face: 1, scale: 0.62, acts: BRAWLER});
+const p2 = new Fighter({name:'枪手', x: START_X + 210, face: -1, scale: 0.62, acts: GUNNER});
+
+let score1 = 0, score2 = 0, roundNo = 1, slowmo = 0, cam = 0, camY = 0, hitstop = 0, shake = 0, flash = 0, over = false;
+let fireCd = 0, attackCd = 0, parryCd = 0, parryReq = false, jumpReq = false, propT = 0;
+// ── 技能参数 ──
+const SK = {
+  immortalChance: 0.5,      // 不朽：50% 满血 / 50% 30% 血
+  frenzyMult: 1,            // 狂化不再翻倍（伤害改成积攒）
+  frenzyHeal: 1.0,          // 狂化：打击回血 100%
+  frenzyTrigger: 0.45,      // 血量低于 45% 触发
+  endureEven: 0.5,          // 承受：偶数概率（骰子）
+  counterReady: 5.0,        // 还击冷却
+  counterCap: 1000,         // 反击池上限
+  frenzyDur: 12,            // 狂化持续时间
+  frenzyCd: 30,             // 狂化冷却
+  reviveTime: 5,            // 不朽：复活读条 5 秒
+  immortalCd: 45,           // 不朽冷却
+};
+const DODGE_DIST = 460, DODGE_TIME = 0.55, DODGE_INVULN = 0.45;
+let stepT = 0, dodgeCd = 0, stepCount = 0, combo = 0, comboT = 0, blockCd = 0;
+let closeT = 0;
+const keys = {};
+const AUTO = (new URLSearchParams(location.search).get('auto') || '').split(',').filter(Boolean);
+const SELFTEST = new URLSearchParams(location.search).get('selftest') === '1';
+const PROBE = new URLSearchParams(location.search).get('probe') === '1';
+let showCheck = false, debugOn = false, autoT = 0, gunDrawCount = 0, camLock = true;
+
+addEventListener('keydown', e=>{
+  if (e.key === 'F1'){ debugOn = !debugOn; return; }
+  if (e.key === 'Tab'){ camLock = !camLock; return; }
+  if (e.key === 'F2'){ freeAim = !freeAim; return; }
+  if (e.key === 'F3'){ showCheck = !showCheck; return; }
+  const k = e.key.toLowerCase();
+  if (k === 'l' && !keys['l']) parryReq = true;
+  if ((k === 'w' || k === ' ') && !keys[k]) jumpReq = true;
+  keys[k] = true; e.preventDefault();
+});
+addEventListener('keyup', e=>{ keys[e.key.toLowerCase()] = false; });
+
+// ── 触摸操作 ──
+const isTouch = ('ontouchstart' in window) || Math.min(innerWidth, innerHeight) < 700;
+(function setupTouch(){
+  const pad = document.getElementById('touch');
+  if (!pad) return;
+  if (isTouch) pad.classList.add('on');
+  const hold = (btn, on, off)=>{
+    const down = e=>{ e.preventDefault(); audioInit(); on(); };
+    const up   = e=>{ e.preventDefault(); off && off(); };
+    btn.addEventListener('pointerdown', down);
+    btn.addEventListener('pointerup', up);
+    btn.addEventListener('pointercancel', up);
+    btn.addEventListener('pointerleave', up);
+  };
+  pad.querySelectorAll('button').forEach(btn=>{
+    const k = btn.dataset.k;
+    if (k === 'a' || k === 'd'){
+      hold(btn, ()=> keys[k] = true, ()=> keys[k] = false);
+    } else if (k === 'jump'){
+      hold(btn, ()=>{ jumpReq = true; }, null);
+    } else if (k === 'l'){
+      hold(btn, ()=>{ parryReq = true; }, null);
+    } else if (k === 'k'){
+      hold(btn, ()=>{ if (['idle','walk','run'].includes(p1.state)) p1.set('dodge',{force:true}); }, null);
+    } else if (k === 'j'){
+      hold(btn, ()=>{ if (['idle','walk','run'].includes(p1.state)) p1.set('swing',{force:true}); }, null);
+    } else if (k === 'heavy'){
+      hold(btn, ()=>{
+        if (!['idle','walk','run'].includes(p1.state)) return;
+        p1.chargeT = (p1.chargeT || 0) + 0.36;          // 直接给满蓄力
+        if (!p1.chargeSfx){ p1.chargeSfx = true; sfx('charge'); }
+      }, ()=>{
+        if ((p1.chargeT || 0) > 0){
+          p1.set('swing2', {force:true}); p1.charged = true; sfx('heavy');
+          p1.chargeT = 0; p1.chargeSfx = false;
+        }
+      });
+    }
+  });
+})();
+
+// 横竖屏 / 窗口变化时把画布塞进屏幕（保持 16:9）
+function fitCanvas(){
+  const sc = Math.min(innerWidth / CW, innerHeight / CH);
+  cv.style.width = Math.round(CW * sc) + 'px';
+  cv.style.height = Math.round(CH * sc) + 'px';
+}
+addEventListener('resize', fitCanvas);
+addEventListener('orientationchange', ()=> setTimeout(fitCanvas, 120));
+
+const bullets = [], sparks = [], dusts = [], floats = [];
+function floatText(x, y, text, color){ floats.push({x, y, text, color: color || '#2b2926', t: 0}); }
+
+
+// ── 音效 / 音乐（WebAudio，全部合成，不依赖音频文件）──
+let AC = null, masterGain = null, musicGain = null, audioPlays = 0, musicOn = true, musicTimer = null;
+let bgmEl = null, bgmReady = false;
+
+// 外部 BGM：默认读 bgm.mp3，也可以用 ?bgm=你的地址 指定
+function tryExternalBgm(){
+  const q = new URLSearchParams(location.search).get('bgm');
+  const cands = q ? [q] : ['bgm.mp3', 'bgm.m4a', 'bgm.ogg'];
+  let idx = 0;
+  const a = new Audio();
+  a.loop = true; a.volume = 0.55; a.preload = 'auto';
+  const next = ()=>{ idx++; if (idx < cands.length) a.src = cands[idx]; };
+  a.oncanplaythrough = ()=>{ bgmReady = true; if (musicTimer){ clearInterval(musicTimer); musicTimer = null; } };
+  a.onerror = ()=>{ bgmReady = false; next(); };
+  a.src = cands[0];
+  bgmEl = a;
+  return a;
+}
+
+function _oldTryExternalBgm(){
+  const q = new URLSearchParams(location.search).get('bgm');
+  const src = q || 'bgm.mp3';
+  const a = new Audio();
+  a.loop = true; a.volume = 0.55; a.preload = 'auto';
+  a.oncanplaythrough = ()=>{ bgmReady = true; if (musicTimer) { clearInterval(musicTimer); musicTimer = null; } };
+  a.onerror = ()=>{ bgmReady = false; };
+  a.src = src;
+  bgmEl = a;
+  return a;
+}
+function startExternalBgm(){
+  if (!bgmEl || !bgmReady) return false;
+  const p = bgmEl.play();
+  if (p && p.catch) p.catch(()=>{});
+  return true;
+}
+function audioInit(){
+  if (AC) return;
+  const C = window.AudioContext || window.webkitAudioContext;
+  if (!C) return;
+  AC = new C();
+  masterGain = AC.createGain(); masterGain.gain.value = 0.9; masterGain.connect(AC.destination);
+  musicGain = AC.createGain(); musicGain.gain.value = 0.10; musicGain.connect(masterGain);
+  if (!bgmReady) startMusic();      // 有外部 BGM 就不放合成乐
+}
+function noiseBuf(dur){
+  const n = Math.floor(AC.sampleRate * dur), b = AC.createBuffer(1, n, AC.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  return b;
+}
+function env(node, t0, a, d, peak){
+  node.gain.setValueAtTime(0.0001, t0);
+  node.gain.exponentialRampToValueAtTime(peak, t0 + a);
+  node.gain.exponentialRampToValueAtTime(0.0001, t0 + a + d);
+}
+function tone(freq, t0, a, d, gain, type){
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t0);
+  env(g, t0, a, d, gain);
+  o.connect(g).connect(masterGain); o.start(t0); o.stop(t0 + a + d + 0.02);
+}
+function noiseHit(t0, dur, gain, hp){
+  const src = AC.createBufferSource(); src.buffer = noiseBuf(dur);
+  const f = AC.createBiquadFilter(); f.type = hp ? 'highpass' : 'lowpass'; f.frequency.value = hp || 900;
+  const g = AC.createGain(); env(g, t0, 0.005, dur, gain);
+  src.connect(f).connect(g).connect(masterGain); src.start(t0); src.stop(t0 + dur + 0.02);
+}
+function sfx(kind){
+  if (!AC) return;
+  const t = AC.currentTime; audioPlays++;
+  if (kind === 'shot'){
+    noiseHit(t, 0.25, 0.9, 1600); tone(70, t, 0.005, 0.22, 0.7, 'sine'); tone(140, t, 0.004, 0.12, 0.35, 'square');
+  } else if (kind === 'swing'){
+    noiseHit(t, 0.16, 0.25, 2200);
+  } else if (kind === 'hit'){
+    noiseHit(t, 0.18, 0.7, 300); tone(90, t, 0.004, 0.18, 0.6, 'triangle');
+  } else if (kind === 'block'){
+    tone(880, t, 0.003, 0.22, 0.35, 'triangle'); tone(1320, t, 0.003, 0.16, 0.2, 'sine'); noiseHit(t, 0.10, 0.4, 3000);
+  } else if (kind === 'jump'){
+    tone(300, t, 0.004, 0.12, 0.25, 'sine'); tone(480, t + 0.03, 0.004, 0.10, 0.18, 'sine');
+  } else if (kind === 'land'){
+    noiseHit(t, 0.12, 0.35, 250);
+  } else if (kind === 'charge'){
+    tone(180, t, 0.2, 0.35, 0.18, 'sawtooth');
+  } else if (kind === 'heavy'){
+    noiseHit(t, 0.3, 0.9, 400); tone(60, t, 0.006, 0.3, 0.8, 'sine');
+  } else if (kind === 'step'){
+    noiseHit(t, 0.07, 0.16, 500);
+  } else if (kind === 'prop'){
+    noiseHit(t, 0.09, 0.35, 1200); tone(520, t, 0.003, 0.08, 0.25, 'triangle');
+  } else if (kind === 'ko'){
+    tone(220, t, 0.01, 0.5, 0.4, 'sawtooth'); tone(110, t + 0.08, 0.01, 0.6, 0.35, 'sine');
+  }
+}
+function startMusic(){
+  if (musicTimer) return;
+  const beat = 0.5, roots = [55, 55, 61.7, 49];
+  let k = 0;
+  musicTimer = setInterval(()=>{
+    if (!AC || !musicOn) return;
+    const t = AC.currentTime + 0.02;
+    if (k % 4 === 0){                                  // 底鼓
+      const o = AC.createOscillator(), g = AC.createGain();
+      o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+      env(g, t, 0.004, 0.16, 0.5); o.connect(g).connect(musicGain); o.start(t); o.stop(t + 0.2);
+    }
+    if (k % 2 === 1){                                  // 反拍 hi-hat
+      const src = AC.createBufferSource(); src.buffer = noiseBuf(0.05);
+      const f = AC.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 6000;
+      const g = AC.createGain(); env(g, t, 0.002, 0.05, 0.12);
+      src.connect(f).connect(g).connect(musicGain); src.start(t); src.stop(t + 0.07);
+    }
+    if (k % 8 >= 2 && k % 8 <= 7 && Math.random() < 0.8){   // 简易琶音旋律
+      const scale = [220, 261.6, 293.7, 349.2, 392, 349.2, 293.7, 261.6];
+      const f = scale[(k + (k / 8 | 0)) % scale.length];
+      const o = AC.createOscillator(), g = AC.createGain();
+      o.type = 'triangle'; o.frequency.setValueAtTime(f, t);
+      env(g, t, 0.01, 0.22, 0.10); o.connect(g).connect(musicGain); o.start(t); o.stop(t + 0.3);
+    }
+    if (k % 8 === 0){                                  // 每两小节一个低音
+      const o = AC.createOscillator(), g = AC.createGain();
+      o.type = 'triangle'; o.frequency.setValueAtTime(roots[(k / 8 | 0) % 4], t);
+      env(g, t, 0.01, 0.9, 0.5); o.connect(g).connect(musicGain); o.start(t); o.stop(t + 1.0);
+    }
+    k++;
+  }, beat * 1000);
+}
+addEventListener('pointerdown', ()=>{ audioInit(); startExternalBgm(); }, {once:true});
+addEventListener('keydown', ()=>{ audioInit(); startExternalBgm(); }, {once:true});
+
+// ── 跳跃 ──
+function tryJump(f){
+  if (f.stun > 0) return;
+  if (f.y <= 0.01 && f.vy <= 0) f.jumps = 0;
+  if (f.jumps >= 2) return;                 // 二段跳
+  sfx('jump');
+  f.vy = JUMP_V * (f.jumps === 0 ? 1 : 0.88);
+  f.jumps++;
+  f.set('jump', {force:true});
+}
+
+// 平台碰撞：下落时穿过平台顶面就站上去
+function physics(f, dt){
+  const wasY = f.y;
+  f.vy -= GRAV * dt;
+  f.y += f.vy * dt;
+  let landed = f.y <= 0;
+  let standY = 0;
+  for (const pf of PLATFORMS){
+    if (f.x > pf.x - 30 && f.x < pf.x + pf.w + 30){
+      const top = GROUND - pf.y;
+      const topH = pf.y;
+      if (f.vy <= 0 && wasY >= topH - 4 && f.y <= topH){ standY = Math.max(standY, topH); landed = true; }
+    }
+  }
+  if (landed){
+    f.y = standY; f.vy = 0; f.jumps = 0;
+    if (f.state === 'jump'){ f.set('idle'); sfx('land'); for (let i=0;i<7;i++) dusts.push({x: f.x + (Math.random()*2-1)*26, y: 0, vx: (Math.random()*2-1)*90, vy: 40+Math.random()*70, t: 0}); }
+  }
+}
+
+function onPlatform(f){
+  for (const pf of PLATFORMS){
+    if (f.x > pf.x && f.x < pf.x + pf.w && Math.abs(f.y - pf.y) < 6) return true;
+  }
+  return false;
+}
+
+// ── 子弹 ──
+const GUN_PIVOT = {x: 16, y: 126};     // 由骨架算出来的手腕位置：前 16px、离地 126px
+function gunPivot(f){
+  return [ f.x + f.face * GUN_PIVOT.x, GROUND - GUN_PIVOT.y - (f.y || 0) ];
+}
+let freeAim = true;           // 默认：枪口自由跟随目标（F2 可切回跟姿势对齐）
+function gunAim(f){
+  const [px, py] = gunPivot(f);
+  const tx = p1.x, ty = GROUND - 250 - (p1.y || 0);
+  let ang = Math.atan2(ty - py, tx - px);
+  if (!freeAim){
+    // 和预渲的持枪姿势对齐：面朝左时基准是 π，偏差限幅 ±14°
+    const base = f.face < 0 ? Math.PI : 0;
+    let d = Math.atan2(Math.sin(ang - base), Math.cos(ang - base));
+    const lim = (f.state === 'aimUp' || f.state === 'fireUp') ? 0.62 : 0.24;
+    d = Math.max(-lim, Math.min(lim, d));
+    ang = base + d;
+  }
+  return [px, py, ang];
+}
+function drawHeldMusket(f){
+  const [px, py, ang] = gunAim(f);
+  const L = 0.65 * 640 * f.scale;
+  gunDrawCount++;
+  ctx.save();
+  ctx.translate(px - cam, py);      // 世界坐标 → 屏幕坐标
+  ctx.rotate(ang);
+  // 枪身：握点往前 0.62L，往后 0.38L
+  const x0 = -0.30 * L, x1 = 0.70 * L;
+  const h = L * 0.085;
+  if (musketImg && musketImg.complete && musketImg.naturalWidth){
+    ctx.drawImage(musketImg, x0, -h/2, x1 - x0, h);
+  } else {
+    ctx.fillStyle = '#6b5340';
+    ctx.fillRect(x0, -h/2, x1 - x0, h);            // 没有贴图时画木杆
+    ctx.fillStyle = '#9aa0a8';
+    ctx.fillRect(x0, -h*0.18, (x1-x0)*0.55, h*0.36);
+  }
+  // 刺刀
+  ctx.fillStyle = '#c2c6ce';
+  ctx.beginPath();
+  ctx.moveTo(x1, -h*0.30);
+  ctx.lineTo(x1 + L*0.16, 0);
+  ctx.lineTo(x1, h*0.30);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#6a6c72'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(x1, -h*0.30); ctx.lineTo(x1 + L*0.16, 0); ctx.stroke();
+  ctx.restore();
+}
+
+function muzzlePoint(f){
+  const s = f.scale;
+  const native = (f === p2) ? -1 : 1;
+  const flip = f.face !== native;
+  const ANG = {aimM55:-55, fireM55:-55, aimM25:-25, fireM25:-25, aimP0:0, fireP0:0, aimP18:18, fireP18:18,
+               aimUp:-56, fireUp:-56};
+  if (ANG[f.state] !== undefined){
+    const [px, py] = gunPivot(f);
+    const a = ANG[f.state] * Math.PI / 180;
+    const L = 0.65 * 640 * f.scale;
+    return [px + Math.cos(a) * 0.70 * L * (f.face < 0 ? -1 : 1), py + Math.sin(a) * 0.70 * L];
+  }
+  if (['fire','fireUp','aim','aimUp'].includes(f.state)){
+    const [px, py, ang] = gunAim(f);
+    const L = 0.55 * 640 * s;
+    return [ px + Math.cos(ang) * 0.62 * L, py + Math.sin(ang) * 0.62 * L ];
+  }
+  const M = (f.state === 'fireUp') ? MUZZLE_UP : MUZZLE_CLIP;
+  const cx = flip ? (1280 - M.x) : M.x;
+  return [ f.x + (cx - 640) * s, GROUND - 640 * s + M.y * s - (f.y || 0) ];
+}
+function spawnBullet(f){
+  window.__shotCount = (window.__shotCount || 0) + 1;
+  const [mx, my] = muzzlePoint(f);
+  const tx = p1.x, ty = GROUND - CHEST - (p1.y || 0);   // 瞄打手胸口
+  let dx = tx - mx, dy = ty - my;
+  if (f.wetShot){                                   // 被打了：子弹偏 ±14°
+    const a = (Math.random() * 2 - 1) * 0.24 * (f.face > 0 ? 1 : -1);
+    const cs = Math.cos(a), sn = Math.sin(a);
+    [dx, dy] = [dx * cs - dy * sn, dx * sn + dy * cs];
+    f.wetShot = false;
+  }
+  const L = Math.hypot(dx, dy) || 1;
+  let sp = 640;
+  const pierce = (f === p2 && f.pierceShot);
+  if (pierce){
+    window.__pierceShots = (window.__pierceShots || 0) + 1;
+    sp *= 3;
+    f.pierceVolley = (f.pierceVolley || 1) - 1;
+    if (f.pierceVolley > 0) f.pierceNext = 0.5;        // 0.5 秒后补第二发
+    else { f.pierceShot = false; f.pierceNext = 0; }
+  }                    // 速度 ×3
+  sfx('shot');
+  bullets.push({x: mx, y: my, vx: dx/L*sp, vy: dy/L*sp, pierce, dmg: pierce ? f.pierceDmg : 0,
+                dir: Math.sign(dx) || f.face, alive: true, t: 0, owner: 'gun'});
+  sparks.push({x: mx + f.face*6, y: my, t: -0.05});
+}
+function updateBullets(dt){
+  for (let i = bullets.length - 1; i >= 0; i--){
+    const b = bullets[i];
+    b.x += (b.vx !== undefined ? b.vx : b.dir * b.speed) * dt;
+    b.y += (b.vy || 0) * dt;
+    b.t += dt;
+    const tgt = (b.owner === 'player') ? p2 : p1;
+    const hb = hurtBox(tgt);
+    const hitX = b.x > hb.x - 10 && b.x < hb.x + hb.w + 10;
+    const hitY = b.y > hb.y - 10 && b.y < hb.y + hb.h + 10;
+    if (hitX && hitY && tgt.invuln <= 0 && tgt.hp > 0){
+      {
+        const base = b.owner === 'player' ? DMG.reflect : (b.pierce ? b.dmg : DMG.gunRanged);
+        const mult = (b.owner === 'gun' && p2.frenzy) ? p2.dmgMult : 1;
+        const dealt = base * mult;
+        tgt.hurt(dealt, b.dir);
+        if (b.owner === 'gun' && p2.frenzy) p2.chargeDmg += dealt;   // 只有狂化期间才蓄能
+        if (b.owner === 'gun' && (p2.frenzy || b.pierce)){           // 狂化弹 + 蓄能穿透弹都吸血，溢出成盾
+          const want = base * mult * SK.frenzyHeal;
+          const room = p2.maxHp - p2.hp;
+          const healed = Math.min(room, want);
+          p2.hp += healed;
+          p2.shield += (want - healed);
+        }
+      }
+      hitstop = .07; shake = 10; flash = .16;
+      sparks.push({x: b.x, y: b.y, t: 0});
+      b.alive = false;
+    }
+    // 挡子弹的平台（穿透弹无视）
+    for (const pf of PLATFORMS){
+      if (b.pierce) break;
+      const py = GROUND - pf.y;
+      if (b.x > pf.x && b.x < pf.x + pf.w && Math.abs(b.y - py) < pf.h/2 + 6){ b.alive = false; }
+    }
+    if (b.x < -80 || b.x > WORLD + 80 || b.t > 4) b.alive = false;
+    if (!b.alive) bullets.splice(i, 1);
+  }
+}
+function tryDeflect(){
+  const u = p1.t / (SPRITES[p1.act].n / FPS);
+  if (p1.state !== 'parry' || u < .15 || u > .75) return;
+  for (const b of bullets){
+    if (b.owner === 'player' || Math.abs(b.x - p1.x) > 120) continue;
+    if (Math.abs(b.y - (GROUND - 250 - (p1.y||0))) > 140) continue;
+    b.owner = 'player'; b.dir = -b.dir; b.t = 0;
+    b.vx = -(b.vx !== undefined ? b.vx : b.dir * 640) * 1.5;
+    b.vy = (b.vy || 0) * -0.6 - 90;      // 弹回去时略微上扬
+    sparks.push({x: b.x, y: b.y, t: 0});
+    sfx('block');
+    hitstop = .06; shake = 8; flash = .12;
+  }
+}
+
+// ── 小物件被挥击打飞 ──
+function hitProps(a){
+  const win = {swing:[.35,.62], swing2:[.35,.62], parry:[.2,.4]}[a.state];
+  if (!win) return;
+  const u = a.t / (SPRITES[a.act].n / FPS);
+  if (u < win[0] || u > win[1]) return;
+  for (const pr of PROPS){
+    if (!pr.alive) continue;
+    if (Math.abs(pr.x - a.x) > 130) continue;
+    if (Math.abs((GROUND - pr.y) - (GROUND - a.y)) > 140) continue;
+    sfx('prop');
+    pr.vx = a.face * (520 + Math.random()*260);
+    pr.vy = 620 + Math.random()*220;
+    pr.spin = (Math.random() - .5) * 14;
+    pr.life = 2.4;
+    sparks.push({x: pr.x, y: GROUND - pr.y, t: 0});
+  }
+}
+function propHits(){
+  for (const pr of PROPS){
+    if (!pr.alive) continue;
+    const speed = Math.hypot(pr.vx || 0, pr.vy || 0);
+    if (speed < 240) continue;                    // 只有飞起来的才算
+    for (const f of [p1, p2]){
+      if (pr.hitCd > 0) continue;
+      if (Math.abs(pr.x - f.x) < 46 && Math.abs((GROUND - pr.y) - (GROUND - 250 - (f.y||0))) < 150){
+        f.hurt(3, Math.sign(pr.vx) || 1);         // 伤害很低
+        hitstop = .05; shake = 6; flash = .1;
+        sparks.push({x: pr.x, y: GROUND - pr.y, t: 0});
+        pr.hitCd = 0.6;
+        pr.vx *= 0.4; pr.vy *= -0.4;
+      }
+    }
+  }
+}
+
+function updateProps(dt){
+  for (const pr of PROPS){
+    if (!pr.alive) continue;
+    if (pr.vx || pr.vy || pr.y > 0){
+      pr.vy -= 1700 * dt;
+      pr.x += pr.vx * dt;
+      pr.y += pr.vy * dt;
+      pr.rot += pr.spin * dt;
+      if (pr.y <= 0){ pr.y = 0; pr.vy = -pr.vy * 0.35; pr.vx *= 0.7; pr.spin *= 0.6;
+        if (Math.abs(pr.vy) < 40){ pr.vy = 0; pr.vx *= 0.3; }
+      }
+      pr.life -= dt;
+      if (pr.hitCd > 0) pr.hitCd -= dt;
+      if (pr.life <= 0 || pr.x < 0 || pr.x > WORLD){ pr.alive = false; }
+    }
+  }
+}
+
+// ── 命中判定 ──
+function hitBox(a, reach){
+  const x0 = a.face > 0 ? a.x + 10 : a.x - reach;
+  return {x: x0, y: GROUND - BODY_H * 0.82 - (a.y||0), w: reach, h: BODY_H * 0.55};   // 肩到膝
+}
+function hurtBox(f){
+  if (f.slideT > 0)                                   // 滑铲：横长方形（宽 150 / 高 78）
+    return {x: f.x - 75, y: GROUND - 78 - (f.y||0), w: 150, h: 78};
+  return {x: f.x - 26, y: GROUND - BODY_H - (f.y||0), w: 52, h: BODY_H};
+}
+function inBox(box, b){
+  const h = hurtBox(b);
+  return h.x < box.x + box.w + 6 && h.x + h.w > box.x - 6 &&
+         h.y < box.y + box.h + 6 && h.y + h.h > box.y - 6;
+}
+
+function checkHit(a, b, windows, dmg, rangeOk){
+  const win = windows[a.state];
+  if (!win) return;
+  const u = a.t / (SPRITES[a.act].n / FPS);
+  if (u < win[0] || u > win[1] || a.hitDone) return;
+  if (b.invuln > 0 || !rangeOk()) return;
+  if (b === p2 && p2.state === 'block' && (b.blockT || 0) > 0){    // 格挡：不掉血，出火花
+    a.hitDone = true;
+    sfx('block');
+    hitstop = .05; shake = 8; flash = .15;
+    sparks.push({x: (a.x + b.x)/2, y: GROUND - 300 - (b.y||0), t: 0});
+    return;
+  }
+  a.hitDone = true;
+  // 连击：1.2 秒内连续命中，第三下开始加伤害
+  combo = (comboT > 0) ? combo + 1 : 1;
+  comboT = 1.2;
+  const bonus = combo >= 3 ? Math.min(6, (combo - 2) * 2) : 0;
+  dmg += bonus;
+  sfx(b.hp <= 0 ? 'ko' : (combo >= 3 ? 'block' : 'hit'));
+  if (a === p2 && p2.frenzy) dmg *= p2.dmgMult;
+  let counterExtra = 0;
+  if (a === p1 && p1.counterCd <= 0 && p1.takenTotal > 0){   // 还击：冷却好了，下一击自动引爆
+    counterExtra = Math.round(p1.takenTotal);
+    p1.takenTotal = 0;
+    p1.counterCd = SK.counterReady;
+    showSkill('还击！', '+' + counterExtra + ' 伤害', '#3c8ce0');
+    flash = Math.max(flash, .25); shake = Math.max(shake, 18);
+    floatText(b.x, GROUND - BODY_H - 40, '+' + counterExtra, '#3c8ce0');
+  }
+  b.hurt(dmg, Math.sign(b.x - a.x));
+  if (counterExtra > 0) applyCounterDamage(b, counterExtra, Math.sign(b.x - a.x));
+  if (a === p2 && p2.frenzy){
+    p2.chargeDmg += dmg;
+    const want = dmg * SK.frenzyHeal, room = p2.maxHp - p2.hp;
+    const healed = Math.min(room, want);
+    p2.hp += healed; p2.shield += (want - healed);
+  }
+  hitstop = (a.state === 'swing2') ? .14 : .09;
+  shake = (a.state === 'swing2') ? 20 : 14;
+  flash = (a.state === 'swing2') ? .28 : .22;
+  sparks.push({x: (a.x + b.x)/2, y: GROUND - 260 - (b.y||0), t: 0});
+}
+
+// ── AI ──
+function aiStep(dt){
+  // 贴身计时：放在最前面，换弹/出招/硬直期间也照样累计
+  const dNow = Math.abs(p1.x - p2.x);
+  if (dNow < LEAP_RANGE) closeT += dt;
+  else if (dNow > LEAP_RANGE * 1.6) closeT = 0;
+
+  if (p2.stun > 0 || over) return;
+  // （换弹的早退放到计时之后）
+  if (/^fire/.test(p2.state) || ['club','club2','block','dodge','reload','leap'].includes(p2.state)) return;   // 正在出招/格挡/闪避就不打断
+  const faceTo = p1.x > p2.x ? 1 : -1;
+  p2.face = faceTo;
+  const d = Math.abs(p1.x - p2.x);
+
+  if (p2.reloading > 0) return;                      // 换弹中：不动不打
+
+  // 看到飞来的子弹就跳
+  for (const b of bullets){
+    if (b.owner === 'gun') continue;
+    if (Math.abs(b.x - p2.x) < 260 && Math.abs(b.x - p2.x) > 60 && p2.y === 0 && p2.jumps === 0){
+      tryJump(p2); return;
+    }
+  }
+  if (p1.y > 40 && d < 260 && p2.y === 0){ tryJump(p2); return; }   // 跟跳 / 跳上平台   // 对方跳上来就跟着跳
+
+  // 看到玩家挥击 → 闪避或格挡
+  if ((p1.state === 'swing' || p1.state === 'swing2') && Math.abs(p1.x - p2.x) < 230){
+    const r = Math.random();
+    if (dodgeCd <= 0 && r < 0.30){ p2.set('dodge', {force:true}); dodgeCd = 1.4; return; }
+    if (blockCd <= 0 && r < 0.62){ p2.set('block', {force:true}); blockCd = 1.1; p2.blockT = 0.55; return; }
+  }
+  // 贴身计时：连续 3 秒被压着 → 立刻大跳后撤 200
+  if (closeT > 3){
+    closeT = 0;
+    p2.leapT = 0.9; p2.leapDir = -faceTo; p2.leapX0 = p2.x; p2.leapShot = false;
+    p2.set('leap', {force:true});
+    sfx('jump');
+    return;
+  }
+
+  // 距离 > 960 就疾跑冲过来，直到 200 以内
+  if (d > 1500) p2.sprint = true;      // 距离过远：开始疾跑
+  if (d <= 700) p2.sprint = false;     // 追到 700 就停
+  if (p2.sprint){
+    p2.x += faceTo * 520 * dt;
+    p2.set('run');
+    return;
+  }
+
+  if (d < 190){                       // 贴脸：一半概率抡枪托，一半后撤
+    if (attackCd <= 0 && Math.random() < 0.55){
+      p2.set(Math.random() < 0.5 ? 'club' : 'club2', {force:true});
+      attackCd = 1.15;
+      return;
+    }
+    p2.x -= faceTo * 190 * dt;
+    p2.set('retreat');
+    return;
+  }
+  if (fireCd <= 0 && d > 190){        // 射程内：按仰角选一套（枪是烤进帧里的）
+    const dy = (GROUND - 250 - (p1.y||0)) - (GROUND - 126 - (p2.y||0));
+    const deg = Math.atan2(dy, Math.abs(p1.x - p2.x)) * 180 / Math.PI;
+    let tag = 'P0';
+    if (deg < -40) tag = 'M55'; else if (deg < -12) tag = 'M25'; else if (deg > 9) tag = 'P18';
+    p2.aimTag = tag;
+    p2.set('aim' + tag);
+    if (p2.t > .5){ p2.set('fire' + tag, {force:true}); fireCd = 1.5; }
+    return;
+  }
+  if (d > 560){ p2.x += faceTo * 120 * dt; p2.set('walk'); return; }
+  p2.set('idle');
+}
+
+
+// ── 回归自检：?test=all 一次跑完所有历史 bug 的检查 ──
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function regress(){
+  const R = [];
+  document.title = 'REGRESS-RUN';
+  const guard = setTimeout(()=>{ document.title = 'REGRESS(超时) ' + R.join(' | '); }, 120000);
+  const ok = (name, cond, extra) => { R.push(name + '=' + (cond ? 'OK' : 'FAIL' + (extra ? '(' + extra + ')' : ''))); document.title = 'REGRESS ' + R.join(' | '); };
+  p1.hp = p2.hp = 99999; over = false;
+
+  // 1) 贴身不被“空气墙”卡住：按住 D 撞过去，看能否贴近且一直在动
+  over = false; p1.hp = p1.maxHp; p2.hp = p2.maxHp; p1.stun = 0; p1.state = 'idle'; p1.slideT = 0;
+  p1.x = 7000; p2.x = 7300; p1.y = p2.y = 0; p2.stun = 0; p2.reloading = 0; p2.testFreeze = true;
+  keys['d'] = true;
+  let minGap = 9999, stuck = 0, last = p1.x;
+  for (let i = 0; i < 100; i++){
+    await sleep(50);
+    closeT = 0; parryReq = false; keys['d'] = true;   // 持续按住右
+    if (!['idle','walk','run'].includes(p1.state)) p1.set('idle', {force:true});
+    minGap = Math.min(minGap, Math.abs(p2.x - p1.x));
+    const gNow = Math.abs(p2.x - p1.x);
+    if (Math.abs(p1.x - last) < 0.3 && gNow > 60) stuck++; else stuck = 0;   // 只有“离得还远却动不了”才算卡住
+    last = p1.x;
+  }
+  keys['d'] = false; p2.testFreeze = false;
+  ok('push', minGap < 60 && stuck < 8, 'gap' + minGap.toFixed(0) + ',stuck' + stuck + ',st' + p1.state + ',sn' + p1.stun.toFixed(2));
+
+  // 2) 图集取帧
+  const fr = getFrame('bat_idle', 0);
+  ok('frames', !!(fr && fr.img && fr.img.naturalWidth > 0 && fr.sw > 0));
+
+  // 3) 镜头锁中心
+  p1.x = WORLD / 2; await sleep(700);
+  ok('camera', Math.abs((p1.x - cam) - CW / 2) < 90, 'off' + Math.abs((p1.x - cam) - CW / 2).toFixed(0));
+
+  // 4) 开枪 → 换弹 1.5 秒
+  p2.x = p1.x + 300; p2.stun = 0; p2.reloading = 0; fireCd = 0; p2.testFreeze = true; p2.set('fireP0', {force:true});
+  let sawFire = false, sawReload = false;
+  for (let i = 0; i < 60; i++){
+    await sleep(50);
+    if (/^fire/.test(p2.state)) sawFire = true;
+    if (p2.state === 'reload') sawReload = true;
+  }
+  p2.testFreeze = false;
+  ok('reload', sawFire && sawReload);
+
+  // 4.5) 疾跑：距离 >1500 会冲过来，到 700 停
+  p1.x = 6000; p2.x = 9000; p2.sprint = false; p2.stun = 0; p2.reloading = 0;
+  p2.testFreeze = false; p2.leapT = 0; p2.y = 0; closeT = 0; p2.set('idle', {force:true});
+  let minD = 9999;
+  for (let i = 0; i < 140; i++){
+    await sleep(50);
+    p1.x = 6000; p1.y = 0;
+    minD = Math.min(minD, Math.abs(p2.x - p1.x));
+  }
+  const endD = Math.abs(p2.x - p1.x);
+  ok('sprint', endD > 620 && endD < 780, 'end' + endD.toFixed(0) + ',st' + p2.state + ',sp' + (p2.sprint?1:0) + ',rl' + (p2.reloading||0).toFixed(1) + ',fz' + (p2.frenzy?1:0));
+
+  // 4.8) 滑铲：有位移、有无敌、受击框变扁
+  p1.x = 8000; p2.x = 9000; p1.state = 'idle'; p1.slideT = 0; p1.face = 1;
+  const sx0 = p1.x;
+  keys['k'] = true; await sleep(120); keys['k'] = false;
+  const invAtStart = p1.invuln;
+  let slideBoxW = 0;
+  for (let i = 0; i < 12; i++){ await sleep(50); slideBoxW = Math.max(slideBoxW, hurtBox(p1).w); }
+  const slideDist = Math.abs(p1.x - sx0);
+  ok('slide', slideDist > 180 && invAtStart > 0.3 && slideBoxW > 120,
+     'd' + slideDist.toFixed(0) + ',inv' + invAtStart.toFixed(2) + ',w' + slideBoxW.toFixed(0));
+
+  // 5) 贴身 3 秒 → 后跳（水平 736 / 最高 472）
+  p2.reloading = 0; p2.stun = 0; closeT = 0; p2.leapT = 0;
+  let leaps = 0, moved = 0, maxY = 0, maxClose = 0, maxD = 0, states = new Set();
+  for (let i = 0; i < 100; i++){
+    p1.x = p2.x - Math.round(BODY_H * 0.8); p1.y = 0;
+    p2.reloading = 0; p2.stun = 0;      // 别让他卡在换弹里
+    await sleep(50);
+    maxClose = Math.max(maxClose, closeT); states.add(p2.state);
+    maxD = Math.max(maxD || 0, Math.abs(p1.x - p2.x));
+    if (p2.state === 'leap') leaps++;
+    moved = Math.max(moved, p2.leapMoved || 0);
+    maxY = Math.max(maxY, p2.y || 0);
+  }
+  ok('leap', leaps > 0 && Math.abs(moved - LEAP_DIST) < 40 && Math.abs(maxY - LEAP_APEX) < 40,
+     'moved' + moved.toFixed(0) + ',y' + maxY.toFixed(0) + ',cT' + maxClose.toFixed(1) + ',d' + maxD.toFixed(0) + ',st[' + [...states].slice(0,4).join(',') + ']');
+
+  // 6) 技能：不朽 / 狂化 / 承受 / 还击
+  p2.immortalCd = 0; p2.reviving = 0; p2.frenzy = false; p2.frenzyCd = 0; p2.dmgMult = 1; p2.hp = 5;
+  applyDamage(p2, 20, 1);
+  const enteredRevive = p2.reviving > 0;
+  let waited = 0;
+  while (p2.reviving > 0 && waited < 8000){ await sleep(200); waited += 200; }
+  const revived = p2.hp > 0;
+  const reviveHp = Math.round(p2.hp);
+  const cdSet = p2.immortalCd > 35 && p2.immortalCd <= 45;
+  p2.hp = p2.maxHp; p2.frenzy = false; p2.frenzyCd = 0; p2.frenzyLeft = 0;
+  await sleep(250);
+  const frenzied = p2.frenzy && p2.dmgMult === SK.frenzyMult;   // 满血也会触发，只看冷却
+  const fzCd = SK.frenzyCd === 30 && SK.immortalCd === 45 && SK.counterReady === 5;
+  p1.takenTotal = 0; p1.storedDmg = 0; p1.hp = 500;
+  let healed = 0, pooled = 0;
+  for (let i = 0; i < 8; i++){
+    const before = p1.hp;
+    applyDamage(p1, 100, 1);
+    if (p1.hp > before) healed++;
+    if (p1.takenTotal > 0) pooled = 1;
+    p1.stun = 0;
+  }
+  const endureWorks = (healed > 0 || pooled > 0);
+  p1.takenTotal = 50; p1.counterCd = 0; p2.hp = 1000; p1.stun = 0; p1.state = 'swing'; p1.t = 0;
+  p2.invuln = 0; p2.blockT = 0; p2.state = 'idle';   // 确保这一击能打实
+  p1.hitDone = false;
+  const hpBefore = p2.hp;
+  checkHit(p1, p2, {swing:[0,1]}, 10, ()=> true);      // 模拟一次命中
+  const counterWorks = p1.takenTotal === 0 && p1.counterCd > 0;   // 池已引爆 + 进入冷却
+  // 复活冲击波：把打手打飞 1000
+  p2.immortalCd = 0; p2.reviving = 0; p2.hp = 5; p1.hp = 99999;
+  p1.x = p2.x - 200; p1.knockT = 0; p1.state = 'idle';
+  applyDamage(p2, 50, 1);
+  let kwaited = 0;
+  while (p2.reviving > 0 && kwaited < 8000){ await sleep(200); kwaited += 200; }
+  const knockStarted = p1.knockT > 0 || p1.state === 'leap' || p1.y > 10;
+  const kx0 = p1.x;
+  await sleep(600);
+  const knockDist = Math.abs(p1.x - kx0);
+  ok('knockback', knockStarted && knockDist > 300, 'd' + Math.round(knockDist));
+  p1.takenTotal = 0;
+  for (let i = 0; i < 30; i++){ applyDamage(p1, 200, 1); p1.stun = 0; }
+  ok('cap', p1.takenTotal <= SK.counterCap, 'pool' + Math.round(p1.takenTotal));
+  ok('skills', revived && frenzied && endureWorks && counterWorks,
+     `rev${reviveHp},fz${frenzied ? 1 : 0},en${endureWorks ? 1 : 0},ctr${counterWorks ? 1 : 0}`);
+
+  // 蓄能弹：狂化结束后下一发穿平台、速度×3、伤害×3^n
+  p2.testFreeze = true; p2.frenzy = true; p2.frenzyLeft = 12; p2.chargeDmg = 300; p2.frenzyCount = 1;
+  p2.chargeAt = 0.4; p2.chargeWarn = 0; p2.pierceShot = false; p2.pierceVolley = 0; p2.pierceNext = 0;
+  bullets.length = 0; window.__pierceShots = 0;
+  const warnBefore = p2.chargeWarn;
+  p2.frenzyCount = 1;
+  await sleep(1400);                                   // 0.4s 发射 + 0.5s 第二发
+  const twoShots = window.__pierceShots === 2;
+  const pierceDmg = 81;
+  // 蓄能弹命中 → 吸血/转盾
+  p2.hp = p2.maxHp; p2.shield = 0; p2.frenzy = false;
+  p1.x = p2.x - 400; p1.invuln = 0; p1.hp = p1.maxHp;
+  bullets.length = 0;
+  p2.pierceShot = true; p2.pierceVolley = 1; p2.pierceNext = 0; p2.pierceDmg = 81;
+  spawnBullet(p2);
+  for (let i = 0; i < 20; i++){ await sleep(50); if (!bullets.length) break; }
+  const shieldOK = p2.shield > 0 || p2.hp < p2.maxHp;
+  ok('pierceHeal', shieldOK, 'shield' + Math.round(p2.shield));
+  p2.shield = 0; p2.pierceShot = false; p2.pierceVolley = 0;
+
+  ok('pierce', twoShots, `shots${window.__pierceShots},dmg${pierceDmg}`);
+
+  // 回合重置：把所有数据弄脏，再调用 resetRound，检查是否全部归零
+  p1.hp = 3; p2.hp = 7; p1.shield = 500; p2.shield = 800;
+  p2.frenzy = true; p2.frenzyCount = 3; p2.chargeDmg = 999; p2.chargeAt = 2; p2.pierceShot = true;
+  p2.frenzyCd = 33; p2.immortalCd = 44; p2.reviving = 1.2; p2.frenzyLeft = 5;
+  p1.takenTotal = 700; p1.counterCd = 4; p1.slideT = 0.3; p2.knockT = 0.5; p2.leapT = 0.4;
+  combo = 7; comboT = 1; bullets.push({x:0,y:0,vx:0,vy:0,alive:true,t:0});
+  resetRound();
+  const clean = p1.hp === p1.maxHp && p2.hp === p2.maxHp
+    && p1.shield === 0 && p2.shield === 0 && !p2.frenzy && p2.frenzyCount === 0
+    && p2.chargeDmg === 0 && p2.chargeAt === 0 && !p2.pierceShot
+    && p2.frenzyCd === 0 && p2.immortalCd === 0 && p2.reviving === 0
+    && p1.takenTotal === 0 && p1.counterCd === 0 && p1.slideT === 0
+    && p2.knockT === 0 && p2.leapT === 0 && combo === 0 && bullets.length === 0;
+  ok('reset', clean, clean ? 'all0' : 'dirty');
+  p2.testFreeze = false; p2.frenzy = false; p2.frenzyLeft = 0; p2.pierceShot = false; p2.pierceNext = 0; p2.chargeAt = 0;
+
+  p1.hp = p1.maxHp; p2.hp = p2.maxHp;
+  clearTimeout(guard);
+  document.title = 'REGRESS ' + R.join(' | ');
+}
+
+function tryCounter(){
+  if (p1.counterCd > 0 || p1.stun > 0 || over) return;
+  const dmg = Math.max(18, Math.round(p1.takenTotal));
+  p1.counterCd = SK.counterReady;
+  p1.takenTotal = 0;
+  p1.set('swing2', {force:true});
+  sfx('heavy');
+  showSkill('打手 · 还击！', Math.round(dmg) + ' 伤害', '#3c8ce0');
+  boom(p1.x, GROUND - CHEST, 200, 'rgba(60,140,224,');
+  // 延迟到挥击命中时结算
+  setTimeout(()=>{ if (!over && p2.hp > 0){ p2.hurt(dmg, Math.sign(p2.x - p1.x)); hitstop = .16; shake = 22; flash = .3; } }, 180);
+}
+
+// ── 主循环 ──
+function step(dt){
+  if (AUTO.length){
+    autoT += dt;
+    if (AUTO.includes('jump') && p1.y === 0 && p1.jumps === 0 && autoT > 1.1){ autoT = 0; tryJump(p1); }
+  }
+  if (fireCd > 0) fireCd -= dt;
+  if (attackCd > 0) attackCd -= dt;
+  if (parryCd > 0) parryCd -= dt;
+  if (comboT > 0){ comboT -= dt; if (comboT <= 0) combo = 0; }
+  if (dodgeCd > 0) dodgeCd -= dt;
+  if (p1.counterCd > 0) p1.counterCd -= dt;
+  // 滑铲：位移 + 无敌
+  if (p1.slideT > 0){
+    const k = p1.slideT / DODGE_TIME;                   // 1 → 0 线性减速
+    p1.x += p1.slideVx * k * dt;
+    p1.slideT -= dt;
+    if (p1.slideT <= 0){ p1.slideT = 0; p1.slideVx = 0; }
+  }
+  if (blockCd > 0) blockCd -= dt;
+  if (p2.blockT > 0) p2.blockT -= dt;
+  // 脚步声：跟着移动状态走
+  if ((p1.state === 'walk' || p1.state === 'run') && p1.y === 0){
+    stepT -= dt;
+    if (stepT <= 0){ sfx('step'); stepCount++; stepT = p1.state === 'run' ? 0.26 : 0.42; }
+  } else stepT = 0;
+  updateFloats(dt);                    // 飘字不受顿帧影响
+  // 狂化中的蓄能弹：1~4 秒随机后发射（最后 1 秒倒计时）
+  if (p2.frenzy && p2.chargeAt > 0){
+    p2.chargeAt -= dt;
+    p2.chargeWarn = Math.max(0, Math.min(1, p2.chargeAt));     // 最后 1 秒才显示
+    if (p2.chargeAt <= 0){
+      p2.chargeAt = 0; p2.chargeWarn = 0;
+      p2.pierceShot = true; p2.pierceVolley = 2; p2.pierceDmg = 0;
+      p2.pierceDmg = Math.round(DMG.gunChargeBase * Math.pow(3, p2.frenzyCount + 1));   // 第一次 9×3²=81，之后 ×3
+      const exp = Math.round(Math.log(p2.pierceDmg) / Math.log(3));
+      const expr = Array(exp).fill('3').join('×');
+      showSkill('发射！', `${expr} = ${p2.pierceDmg} × 2 发`, '#ff1f1f');
+      flash = Math.max(flash, .35); shake = Math.max(shake, 16);
+      spawnBullet(p2);
+      // 发射后立刻结束狂化，进入冷却
+      p2.frenzy = false; p2.frenzyLeft = 0; p2.frenzyT = 0;
+      p2.dmgMult = 1; p2.frenzyGlow = false;
+      p2.frenzyCd = SK.frenzyCd;
+    }
+  }
+  // 蓄能弹第二发
+  if (p2.pierceNext > 0){
+    p2.pierceNext -= dt;
+    if (p2.pierceNext <= 0){ p2.pierceNext = 0; spawnBullet(p2); }
+  }
+  if (hitstop > 0){ hitstop -= dt; return; }
+
+  // 玩家
+  // 枪手·狂化：残血时永久强化，头部红光
+  if (p2.frenzy && p2.frenzyLeft > 0){
+    p2.frenzyLeft -= dt;
+    if (p2.frenzyLeft <= 0){                                   // 狂化结束
+      p2.frenzy = false; p2.dmgMult = 1; p2.frenzyGlow = false; p2.frenzyCd = SK.frenzyCd;
+      p2.frenzyT = 0;
+
+    }
+  }
+  if (!p2.frenzy && p2.reviving <= 0 && p2.frenzyCd <= 0 && p2.hp > 0){   // 冷却好了就放，不看血量
+    p2.frenzy = true;
+    p2.dmgMult = 1; p2.chargeDmg = 0;
+    p2.chargeAt = 1 + Math.random() * 3;              // 狂化：开始蓄能
+    p2.chargeAt = 1 + Math.random() * 3;           // 1~4 秒后发射
+    p2.frenzyCount = (p2.frenzyCount || 0) + 1;    // 第几次狂化
+    p2.pierceShot = false; p2.pierceVolley = 0; p2.pierceNext = 0;
+    p2.frenzyLeft = SK.frenzyDur;
+    p2.frenzyT = 1.4; p2.frenzyGlow = true;
+    showSkill('枪手 · 狂化！', '伤害 ×3', '#ff2d2d');
+    flash = Math.max(flash, .5); shake = Math.max(shake, 18);
+    boom(p2.x, GROUND - CHEST * 1.9, 220, 'rgba(255,40,40,');
+    sfx('ko');
+  }
+  if (p2.frenzyT > 0) p2.frenzyT -= dt;
+  if (p2.immortalCd > 0) p2.immortalCd -= dt;
+  if (p2.frenzyCd > 0 && !p2.frenzy) p2.frenzyCd -= dt;
+
+  // 不朽：5 秒读条
+  if (p2.reviving > 0){
+    p2.reviving -= dt;
+    if (Math.random() < 0.5)                                   // 向上飘的紫粒子
+      sparks.push({x: p2.x + (Math.random()*2-1)*70, y: GROUND - (p2.y||0) - Math.random()*120, t: 0, big: true, rgba: 'rgba(178,60,255,'});
+    if (p2.reviving <= 0){
+      p2.reviving = 0;
+      p2.hp = Math.round(p2.maxHp * (p2.reviveFull ? 1 : 0.3));
+      p2.set('idle', {force:true});
+      p2.invuln = 1.5;
+      showSkill('枪手 · 复活！', p2.reviveFull ? '满血归来' : '30% 血归来', '#b23cff');
+      // 复活冲击波：把附近的人打飞 1000px
+      if (p1.hp > 0 && Math.abs(p1.x - p2.x) < 520){
+        p1.knockT = 0.9; p1.knockDist = 1000;
+        p1.knockDir = Math.sign(p1.x - p2.x) || 1;
+        p1.knockX0 = p1.x;
+        p1.set('leap', {force:true});
+        p1.invuln = Math.max(p1.invuln, 0.3);
+        shake = Math.max(shake, 26); flash = Math.max(flash, .35);
+        boom(p2.x, GROUND - CHEST, 320, 'rgba(178,60,255,');
+        sfx('ko');
+      }
+      flash = Math.max(flash, .45); shake = Math.max(shake, 16);
+      boom(p2.x, GROUND - CHEST, 260, 'rgba(178,60,255,');
+      for (let i = 0; i < 26; i++) sparks.push({x: p2.x, y: GROUND - 40 - i*6, t: 0, big: true, rgba: 'rgba(200,120,255,'});
+    }
+    return;                                                    // 读条期间不做别的
+  }
+
+  if (p1.stun <= 0 && !over){
+    if (['idle','walk','run'].includes(p1.state)){
+      let mv = 0;
+      if (keys['a']) mv--;
+      if (keys['d']) mv++;
+      const run = !!(keys['shift']);
+      if (mv !== 0){ p1.x += mv * 260 * (run?1.95:1) * dt; p1.face = mv; p1.set(run?'run':'walk'); }
+      else p1.set('idle');
+      if (jumpReq){ jumpReq = false; tryJump(p1); }
+      if (keys['j'] && keys['shift'] && (p1.state==='idle'||p1.state==='walk'||p1.state==='run')){
+        p1.chargeT = (p1.chargeT || 0) + dt;            // Shift+J 按住蓄力
+        if (p1.chargeT > 0.35 && !p1.chargeSfx){ sfx('charge'); p1.chargeSfx = true; }
+      } else if (keys['j'] && (p1.state==='idle'||p1.state==='walk'||p1.state==='run')){
+        p1.set('swing', {force:true});                  // 普通横扫
+        p1.chargeT = 0; p1.chargeSfx = false;
+      } else if ((p1.chargeT || 0) > 0){
+        const strong = p1.chargeT > 0.35;               // 松手：放重击
+        p1.set('swing2', {force:true});
+        p1.charged = strong;
+        if (strong) sfx('heavy');
+        p1.chargeT = 0; p1.chargeSfx = false;
+      }
+      if (keys['k'] && p1.slideT <= 0 && p1.state !== 'dodge'){
+        p1.set('dodge', {force:true});
+        p1.slideT = DODGE_TIME; p1.slideVx = p1.face * (2 * DODGE_DIST / DODGE_TIME);   // 线性衰减下总位移 = DODGE_DIST
+        p1.invuln = DODGE_INVULN;
+        sfx('land');
+      }
+      if (parryReq){ parryReq = false;
+        if (parryCd <= 0){ p1.set('parry',{force:true}); parryCd = .75; } }
+    }
+    if (keys['j'] && p1.state === 'jump'){ p1.set('swing', {force:true}); p1.vy = Math.min(p1.vy, -200); }   // 空中挥击：略微下坠
+    if (!['idle','walk','run','jump'].includes(p1.state)) { jumpReq = false; parryReq = false; }
+    if (keys['w'] && ['jump'].includes(p1.state) && p1.jumps < 2 && jumpReq){ }
+  } else { jumpReq = false; parryReq = false; }
+
+  aiStep(dt);
+
+  // 被复活冲击波打飞
+  if (p1.knockT > 0){
+    const u = 1 - p1.knockT / 0.9;
+    const k = u < 0.5 ? 2*u*u : 1 - Math.pow(-2*u + 2, 2) / 2;
+    p1.x = p1.knockX0 + p1.knockDir * p1.knockDist * k;
+    p1.y = Math.sin(Math.PI * Math.min(1, u)) * 300;
+    p1.knockT -= dt;
+    if (p1.knockT <= 0){ p1.knockT = 0; p1.y = 0; p1.set('idle'); }
+  }
+  // 大跳后撤：脚本控制位移 + 抛物线高度
+  if (p2.leapT > 0){
+    const u = 1 - p2.leapT / 0.9;
+    const k = u < 0.5 ? 2*u*u : 1 - Math.pow(-2*u + 2, 2) / 2;   // easeInOut
+    p2.x = p2.leapX0 + p2.leapDir * LEAP_DIST * k;
+    p2.leapMoved = Math.max(p2.leapMoved || 0, Math.abs(p2.x - p2.leapX0));
+    p2.y = Math.sin(Math.PI * Math.min(1, u)) * LEAP_APEX;
+    window.__maxLeapY = Math.max(window.__maxLeapY || 0, p2.y);
+    if (!p2.leapShot && u > 0.45){          // 空中开一枪
+      p2.leapShot = true;
+      spawnBullet(p2);
+      flash = Math.max(flash, .12); shake = Math.max(shake, 6);
+    }
+    p2.leapT -= dt;
+    if (p2.leapT <= 0){ p2.leapT = 0; p2.y = 0; p2.set('idle'); }
+  } else {
+    physics(p2, dt);
+  }
+  if (p1.knockT <= 0) physics(p1, dt);   // 被打飞期间由脚本控制
+  p1.update(dt); p2.update(dt);
+  // 开火：动作播到 18% 时生成一颗子弹
+  for (const st of ['fire','fireUp','fireM55','fireM25','fireP0','fireP18']){
+    if (p2.state === st && !p2.bulletDone){
+      const u = p2.t / (SPRITES[p2.act].n / FPS);
+      if (u > 0.18){ p2.bulletDone = true; spawnBullet(p2); }
+    }
+  }
+  if (!/^fire/.test(p2.state)) p2.bulletDone = false;
+  if (p2.frenzy && p2.extraShot){                     // 狂化·额外行动：补一枪
+    p2.extraShot = false;
+    p2.fireCdBoost = true;
+  }
+
+  // 开完枪 → 蹲下换弹 1.5 秒（这段时间不能开枪、不能动）
+  if (p2.bulletDone && /^fire/.test(p2.state) && !p2.reloading){
+    p2.reloading = p2.frenzy ? 0.7 : 1.5;        // 狂化：动得更勤
+    p2.set('reload', {force:true});
+  }
+  if (p2.reloading > 0){
+    p2.reloading -= dt;
+    if (p2.state !== 'reload') p2.set('reload', {force:true});
+    if (p2.reloading <= 0){ p2.reloading = 0; p2.set('idle'); }
+  }
+
+  updateBullets(dt); tryDeflect(); updateProps(dt); propHits(); hitProps(p1); hitProps(p2); updateDust(dt);
+
+  // 一次性动作播完 → 回待机
+  for (const f of [p1, p2]){
+    const sp = SPRITES[f.act];
+    if (!sp.loop && f.done() && !['idle','ko'].includes(f.state)){
+      if (f.state === 'retreat'){ f.t = 0; continue; }
+      f.set('idle');
+    }
+  }
+
+  // 边界 + 不许重叠
+  p1.x = Math.max(40, Math.min(WORLD - 40, p1.x));
+  p2.x = Math.max(40, Math.min(WORLD - 40, p2.x));
+  // 只把枪手推开，玩家永远不会被"空气墙"顶住
+  const gap = p2.x - p1.x;
+  const MIN_GAP = 26;
+  if (Math.abs(gap) < MIN_GAP && Math.abs(p1.y - p2.y) < 120){
+    const s = Math.sign(gap || 1);
+    p2.x += s * (MIN_GAP - Math.abs(gap)) * 0.55;   // 轻轻让位，允许贴身擦过
+    p2.x = Math.max(40, Math.min(WORLD - 40, p2.x));
+  }
+
+  const heavyNow = p1.state === 'swing2';
+  const chargeBoost = (p1.charged && heavyNow) ? DMG.chargeBonus : 0;
+  checkHit(p1, p2, {swing:[.35,.62], swing2:[.30,.66]}, (heavyNow ? DMG.brawlerHeavy : DMG.brawlerSwing) + chargeBoost,
+           ()=> inBox(hitBox(p1, heavyNow ? 180 : (p1.y > 10 ? 175 : 150)), p2));
+  checkHit(p2, p1, {club:[.35,.62], club2:[.35,.62]}, DMG.gunMelee,
+           ()=> inBox(hitBox(p2, 150), p1));
+
+  if (!over && (p1.hp <= 0 || (p2.hp <= 0 && p2.reviving <= 0))){
+    over = true; slowmo = 1.6; hitstop = 0.22; flash = 0.35; shake = 26;   // 定格 + 慢镜
+    const p1Win = p2.hp <= 0;
+    if (p1Win) score1++; else score2++;
+    document.getElementById('score').textContent = `${score1} : ${score2}`;
+    const matchOver = score1 >= 2 || score2 >= 2;
+    const who = p1Win ? '打手' : '枪手';
+    showMsg(matchOver ? `${who} 拿下比赛` : `${who} 胜 · 第 ${roundNo} 局`, matchOver);
+  }
+}
+
+const ROUND_LINES = [
+  ['来吧。', '别磨蹭。'],
+  ['这次不躲了。', '换我进攻。'],
+  ['最后一局。', '站着别动。'],
+];
+function roundLine(){
+  const m = document.getElementById('msg');
+  const pair = ROUND_LINES[Math.min(ROUND_LINES.length-1, roundNo-1)] || ROUND_LINES[0];
+  m.textContent = pair[Math.random() < .5 ? 0 : 1];
+  m.style.opacity = 1; m.style.fontSize = '34px'; m.style.color = '#5a5650';
+  setTimeout(()=>{ m.style.opacity = 0; m.style.fontSize = '64px'; m.style.color = '#2b2926'; }, 1100);
+}
+
+function showMsg(text, matchOver){
+  const m = document.getElementById('msg');
+  m.textContent = text; m.style.opacity = 1;
+  setTimeout(()=>{ m.style.opacity = 0; }, 1600);
+  setTimeout(()=>{
+    if (matchOver){ score1 = 0; score2 = 0; roundNo = 1; }
+    else roundNo++;
+    document.getElementById('score').textContent = `${score1} : ${score2}`;
+    resetRound();                       // 一回合结束：全部数据归零
+    setTimeout(roundLine, 260);
+  }, 2400);
+}
+
+// ── 绘制 ──
+function resetFighter(f){
+  f.hp = f.maxHp; f.state = 'idle'; f.t = 0; f.frame = 0;
+  f.y = 0; f.vy = 0; f.jumps = 0; f.stun = 0; f.invuln = 0; f.hurtT = 0;
+  f.hitDone = false; f.bulletDone = false; f.reloading = 0; f.closeT = 0;
+  f.slideT = 0; f.slideVx = 0; f.knockT = 0; f.leapT = 0; f.leapShot = false;
+  f.shield = 0; f.dmgMult = 1;
+  // 技能相关
+  f.frenzy = false; f.frenzyCd = 0; f.frenzyLeft = 0; f.frenzyT = 0; f.frenzyGlow = false;
+  f.frenzyCount = 0; f.frenzyStacks = 0; f.chargeDmg = 0; f.chargeAt = 0; f.chargeWarn = 0;
+  f.pierceShot = false; f.pierceVolley = 0; f.pierceNext = 0; f.pierceDmg = 0;
+  f.reviving = 0; f.immortalCd = 0; f.reviveFull = false;
+  f.takenTotal = 0; f.storedDmg = 0; f.counterCd = 0; f.wetShot = false;
+}
+function resetRound(){
+  over = false; slowmo = 0; hitstop = 0; shake = 0; flash = 0;
+  p1.x = START_X - 210; p2.x = START_X + 210;
+  resetFighter(p1); resetFighter(p2);
+  p1.face = 1; p2.face = -1;
+  fireCd = attackCd = parryCd = 0; dodgeCd = 0; blockCd = 0; closeT = 0;
+  parryReq = jumpReq = false; combo = 0; comboT = 0;
+  bullets.length = 0; sparks.length = 0; dusts.length = 0; floats.length = 0;
+  PROPS.forEach((pr,i)=>{ pr.alive = true; pr.x = 600 + i*(WORLD-1200)/40;
+    pr.y = 0; pr.vx = pr.vy = 0; pr.rot = 0; pr.life = 0; pr.hitCd = 0; });
+}
+
+function drawFighter(f){
+  const fr = getFrame(f.act, f.frame);
+  if (!fr) return;
+  const s = f.scale, native = (f === p2) ? -1 : 1;
+  ctx.save();
+  ctx.translate(f.x - cam, GROUND - 640*s - (f.y||0));
+  if (f.face !== native) ctx.scale(-1, 1);
+  ctx.drawImage(fr.img, fr.sx, fr.sy, fr.sw, fr.sh, -640*s, 0, 1280*s, 720*s);
+  ctx.restore();
+
+  if (f === p1 && (p1.chargeT || 0) > 0.1){
+    const k = Math.min(1, p1.chargeT / 0.6);
+    ctx.save();
+    ctx.strokeStyle = `rgba(240,${180 - k*80},60,${0.35 + k*0.5})`;
+    ctx.lineWidth = 3 + k * 3;
+    ctx.beginPath();
+    ctx.arc(f.x - cam, GROUND - BODY_H * 0.55 - (f.y||0) + camY, 46 + k * 26, 0, 7);
+    ctx.stroke();
+    ctx.restore();
+  }
+  if (f === p2 && f.chargeWarn > 0){
+    const cx = f.x - cam, cy = GROUND - BODY_H - 26 - (f.y||0) + camY;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 20px Menlo';
+    ctx.fillStyle = 'rgba(255,60,40,.95)';
+    ctx.fillText('蓄能弹 ' + f.chargeWarn.toFixed(1) + 's', cx, cy);
+    ctx.strokeStyle = 'rgba(255,60,40,.75)'; ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(cx, cy + 18, 14, -Math.PI/2, -Math.PI/2 + Math.PI * 2 * (1 - f.chargeWarn / 1.0));
+    ctx.stroke();
+    ctx.restore();
+  }
+  if (f === p2 && f.reviving > 0){
+    const k = 1 - f.reviving / SK.reviveTime;                  // 0 → 1
+    const cx = f.x - cam, cy = GROUND - (f.y||0);
+    // 光柱
+    const beam = ctx.createLinearGradient(cx, cy - 460, cx, cy);
+    beam.addColorStop(0, 'rgba(178,60,255,0)');
+    beam.addColorStop(0.5, `rgba(200,110,255,${0.20 + 0.25*k})`);
+    beam.addColorStop(1, `rgba(230,190,255,${0.45 + 0.3*k})`);
+    ctx.fillStyle = beam;
+    const w = 40 + 60 * k;
+    ctx.fillRect(cx - w/2, cy - 460, w, 460);
+    // 扩散环
+    for (let i = 0; i < 3; i++){
+      const p = (k + i / 3) % 1;
+      ctx.strokeStyle = `rgba(190,120,255,${0.55 * (1 - p)})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.ellipse(cx, cy - 10, 30 + 120 * p, (30 + 120 * p) * 0.28, 0, 0, 7); ctx.stroke();
+    }
+    // 倒计时
+    ctx.save();
+    ctx.fillStyle = 'rgba(230,200,255,.95)'; ctx.font = 'bold 30px Menlo'; ctx.textAlign = 'center';
+    ctx.fillText(Math.ceil(f.reviving) + 's', cx, cy - 300);
+    ctx.restore();
+  }
+  if (f === p2 && (f.frenzyT > 0 || (f.frenzy && f.frenzyGlow))){
+    const k = f.frenzyT > 0 ? Math.min(1, f.frenzyT / 1.4) : 0.28;   // 触发时强闪，之后常亮弱光
+    const hx = f.x - cam, hy = GROUND - BODY_H * 0.92 - (f.y||0) + camY;
+    const r = 120 + 200 * (1 - k);
+    const g = ctx.createRadialGradient(hx, hy, 0, hx, hy, r);
+    g.addColorStop(0, `rgba(255,60,40,${0.55 * k})`);
+    g.addColorStop(0.45, `rgba(255,40,30,${0.28 * k})`);
+    g.addColorStop(1, 'rgba(255,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(hx, hy, r, 0, 7); ctx.fill();
+  }
+  if (f.hurtT > 0){
+    ctx.save();
+    ctx.globalAlpha = Math.min(0.5, f.hurtT * 4);
+    ctx.fillStyle = '#e0402a';
+    ctx.fillRect(f.x - cam - 25, GROUND - BODY_H - (f.y||0) + camY, 50, BODY_H);   // 只盖身体
+    ctx.restore();
+  }
+}
+
+function drawWorld(){
+  const g = ctx.createLinearGradient(0,0,0,CH);
+  g.addColorStop(0,'#fbfaf6'); g.addColorStop(1,'#efede6');
+  ctx.fillStyle = g; ctx.fillRect(0,0,CW,CH);
+  // 地面
+  ctx.strokeStyle = 'rgba(150,145,140,.55)'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(0,GROUND); ctx.lineTo(CW,GROUND); ctx.stroke();
+  ctx.strokeStyle = 'rgba(150,145,140,.22)'; ctx.lineWidth = 2;
+  const k0 = Math.floor(cam/160)*160;
+  for (let x = k0; x < cam + CW + 160; x += 160){
+    const sx = x - cam;
+    ctx.beginPath(); ctx.moveTo(sx, GROUND); ctx.lineTo(sx+46, GROUND+12); ctx.stroke();
+  }
+  // 平台
+  for (const pf of PLATFORMS){
+    const sx = pf.x - cam, sy = GROUND - pf.y;
+    if (sx > CW || sx + pf.w < 0) continue;
+    ctx.fillStyle = '#d9d4c8'; ctx.fillRect(sx, sy, pf.w, pf.h);
+    ctx.fillStyle = '#c6c0b3'; ctx.fillRect(sx, sy + pf.h - 6, pf.w, 6);
+    ctx.strokeStyle = 'rgba(120,115,108,.5)'; ctx.lineWidth = 2;
+    ctx.strokeRect(sx, sy, pf.w, pf.h);
+  }
+  // 小物件
+  for (const pr of PROPS){
+    if (!pr.alive) continue;
+    const sx = pr.x - cam, sy = GROUND - pr.y;
+    if (sx < -40 || sx > CW + 40) continue;
+    ctx.save(); ctx.translate(sx, sy); ctx.rotate(pr.rot);
+    if (pr.kind === 0){ ctx.fillStyle='#c98b5a'; ctx.fillRect(-pr.sz/2, -pr.sz, pr.sz, pr.sz); }
+    else if (pr.kind === 1){ ctx.fillStyle='#9bb08f'; ctx.beginPath(); ctx.arc(0,-pr.sz/2,pr.sz/2,0,7); ctx.fill(); }
+    else { ctx.fillStyle='#a9a29a'; ctx.fillRect(-pr.sz/2, -pr.sz*0.8, pr.sz*0.6, pr.sz*0.8);
+           ctx.fillRect(pr.sz*0.1, -pr.sz*0.8, pr.sz*0.5, pr.sz*0.8); }
+    ctx.restore();
+  }
+}
+
+function updateDust(dt){
+  for (let i = dusts.length - 1; i >= 0; i--){
+    const d = dusts[i]; d.t += dt;
+    if (d.t > 0.5){ dusts.splice(i,1); continue; }
+    d.x += d.vx * dt; d.y += d.vy * dt; d.vy -= 160 * dt;
+  }
+}
+function updateFloats(dt){
+  for (let i = floats.length - 1; i >= 0; i--){
+    const f = floats[i]; f.t += dt; f.y -= 34 * dt;
+    if (f.t > 1.0) floats.splice(i, 1);
+  }
+}
+function drawFloats(){
+  ctx.save();
+  ctx.font = 'bold 22px Menlo'; ctx.textAlign = 'center';
+  for (const f of floats){
+    const k = 1 - f.t;
+    ctx.globalAlpha = Math.max(0, k);
+    ctx.fillStyle = f.color;
+    ctx.fillText(f.text, f.x - cam, f.y + camY);
+  }
+  ctx.restore();
+}
+
+function drawDust(){
+  for (const d of dusts){
+    const k = 1 - d.t / 0.5, r = 6 + 16 * d.t;
+    ctx.fillStyle = `rgba(200,194,184,${0.55*k})`;
+    ctx.beginPath(); ctx.ellipse(d.x - cam, GROUND - d.y - 4, r, r*0.55, 0, 0, 7); ctx.fill();
+  }
+}
+
+function drawBullets(){
+  for (const b of bullets){
+    const x = b.x - cam, y = b.y, mine = b.owner === 'player';
+    const vx = (b.vx !== undefined ? b.vx : b.dir * 640);
+    const vy = (b.vy || 0);
+    const sp = Math.hypot(vx, vy) || 1;
+    const ux = vx / sp, uy = vy / sp;
+    const tail = Math.min(150, 40 + sp * 0.10);     // 速度越快尾巴越长
+    ctx.strokeStyle = b.pierce ? 'rgba(255,60,40,.95)' : (mine ? 'rgba(140,220,255,.9)' : 'rgba(255,214,90,.85)');
+    ctx.lineWidth = 7;
+    ctx.beginPath(); ctx.moveTo(x - ux*tail, y - uy*tail); ctx.lineTo(x, y); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,245,1)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(x - ux*tail*0.45, y - uy*tail*0.45); ctx.lineTo(x, y); ctx.stroke();
+    const g = ctx.createRadialGradient(x, y, 0, x, y, 26);
+    if (b.pierce){ g.addColorStop(0,'rgba(255,220,210,.98)'); g.addColorStop(.45,'rgba(255,60,40,.75)'); g.addColorStop(1,'rgba(200,0,0,0)'); }
+    else if (mine){ g.addColorStop(0,'rgba(230,250,255,.95)'); g.addColorStop(.45,'rgba(120,210,255,.6)'); g.addColorStop(1,'rgba(80,180,255,0)'); }
+    else { g.addColorStop(0,'rgba(255,240,190,.95)'); g.addColorStop(.45,'rgba(255,205,90,.55)'); g.addColorStop(1,'rgba(255,190,60,0)'); }
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 26, 0, 7); ctx.fill();
+    ctx.fillStyle = '#fffdf2'; ctx.beginPath(); ctx.ellipse(x, y, 7, 4.5, 0, 0, 7); ctx.fill();
+  }
+}
+
+function drawFX(dt){
+  for (let i = sparks.length-1; i >= 0; i--){
+    const s = sparks[i]; s.t += dt;
+    if (s.t > .35){ sparks.splice(i,1); continue; }
+    const k = 1 - s.t/.35, x = s.x - cam, y = s.y;
+    ctx.save(); ctx.translate(x, y);
+    ctx.fillStyle = `rgba(255,214,120,${.9*k})`;
+    ctx.beginPath();
+    for (let j = 0; j < 18; j++){
+      const a = Math.PI*j/9, r = (j%2?14:38)*(0.6+k);
+      ctx[j?'lineTo':'moveTo'](Math.cos(a)*r, Math.sin(a)*r);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = `rgba(255,250,230,${k})`;
+    ctx.beginPath(); ctx.arc(0,0,10*(0.5+k),0,7); ctx.fill();
+    ctx.restore();
+  }
+  if (flash > 0){ ctx.fillStyle = `rgba(255,255,255,${flash*0.28})`; ctx.fillRect(0,0,CW,CH); flash = Math.max(0, flash - dt*7); }
+}
+
+
+function selfTestStep(){
+  const st = window.__st, k = ++st.ticks;
+  st.maxY = Math.max(st.maxY, p1.y || 0);
+  if (k === 40){ p1.x = p2.x + 90; p1.state = 'parry'; p1.t = 0.25;
+    bullets.length = 0;
+    const bb = {x: p1.x, y: GROUND - 258, dir: -1, speed: 0, alive: true, t: 0, owner: 'gun'};
+    bullets.push(bb);
+    try { tryDeflect(); st.deflected = (bb.owner === 'player') ? 1 : 0; } catch(e){ st.dInfo = 'ERR ' + e.message; }
+  }
+  if (k === 60){ keys['d'] = true; p1.face = 1; }
+  if (k === 90){ keys['d'] = false; }
+  if (k >= 100 && k < 130){ p1.x = p2.x + 150; p1.state = 'swing'; p1.t = 0.12; }
+  if (p2.state === 'dodge') st.dodgeSeen = 1;
+  if (k === 140){
+    document.title = `SELFTEST jump=${st.maxY.toFixed(0)} deflect=${st.deflected} steps=${stepCount} aiDodge=${st.dodgeSeen} audio=${audioPlays} | ${st.dInfo}`;
+  }
+}
+
+let last = performance.now(), fpsAvg = 60;
+function loop(now){
+  try {
+  let dt = Math.min(.05, (now-last)/1000); last = now;
+  if (slowmo > 0){ slowmo -= dt; dt *= 0.35; }   // KO 慢镜头
+  fpsAvg = fpsAvg*0.92 + (1/Math.max(dt,.001))*0.08;
+  step(dt);
+
+  // ── 镜头：主角永远在画面正中（只有到地图边界才让出去）──
+  const focus = camLock ? p1.x : (p1.x + p2.x) / 2;
+  const targetCam = Math.max(0, Math.min(WORLD - CW, focus - CW / 2));
+  cam += (targetCam - cam) * Math.min(1, dt * 12);   // 跟得紧，几乎贴着中心
+  // 高度：只看自己；死区 70px，落地后慢慢回
+  const tall = Math.max(p1.y || 0, (p2.y || 0) * 0.62);
+  const targetY = Math.max(0, (tall - 70) * 0.55);
+  camY += (targetY - camY) * Math.min(1, dt * (targetY > camY ? 6 : 3));
+
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.clearRect(0,0,CW,CH);
+  ctx.save();
+  ctx.translate(0, camY);
+  if (shake > 0){
+    ctx.translate((Math.random()*2-1)*shake, (Math.random()*2-1)*shake*0.6);
+    shake = Math.max(0, shake - dt*90);
+  }
+  drawWorld();
+  for (const pr of PROPS){}
+  drawFighter(p1); drawFighter(p2);
+  drawBullets(); drawFX(dt); drawDust(); drawFloats();
+  ctx.restore();
+
+  if (AUTO.length){
+    ctx.fillStyle = 'rgba(200,60,40,.9)'; ctx.font = 'bold 20px Menlo';
+    ctx.fillText('自动演示中（URL 带 ?auto=）', 20, 36);
+  }
+  if (showCheck){
+    const rows = [
+      `贴图 ${ACT.length} 个动作 / ${Object.keys(imgCache).length} 张`,
+      `子弹 ${bullets.length} · 火星 ${sparks.length} · 尘埃 ${dusts.length}`,
+      `道具存活 ${PROPS.filter(x=>x.alive).length} / ${PROPS.length}`,
+      `音频 ${AC ? (AC.state || 'on') : '未启动（点一下页面）'} · 播放 ${audioPlays}`,
+      `帧率 ${fpsAvg.toFixed(0)} · 镜头 ${cam.toFixed(0)} · 比分 ${score1}:${score2}`,
+      `p1 ${p1.state} hp${p1.hp.toFixed(0)} y${p1.y.toFixed(0)} · p2 ${p2.state} hp${p2.hp.toFixed(0)}`,
+    ];
+    ctx.save();
+    ctx.fillStyle = 'rgba(20,20,24,.82)';
+    ctx.fillRect(16, 80, 470, 20 * rows.length + 20);
+    ctx.fillStyle = '#f2efe8'; ctx.font = '14px Menlo';
+    rows.forEach((r,i)=> ctx.fillText(r, 30, 104 + i*20));
+    ctx.restore();
+  }
+  if (debugOn){
+    for (const [a, reach] of [[p1, 170], [p2, 180]]){
+      const bb = hitBox(a, reach);
+      ctx.strokeStyle = 'rgba(220,60,60,.75)'; ctx.lineWidth = 2;
+      ctx.strokeRect(bb.x - cam, bb.y + camY, bb.w, bb.h);   // 补上镜头的纵向偏移
+    }
+    for (const f of [p1, p2]){
+      ctx.strokeStyle = 'rgba(60,120,220,.75)';
+      const bx = f.x - cam, by = GROUND - 250 - (f.y||0) + camY;
+      const hbx = hurtBox(f);
+      ctx.strokeRect(hbx.x - cam, hbx.y + camY, hbx.w, hbx.h);   // 受击框（滑铲时会变扁）
+    }
+    ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.font = '15px Menlo';
+    ctx.fillText(`p1 ${p1.state} hp=${p1.hp.toFixed(0)} y=${p1.y.toFixed(0)} jumps=${p1.jumps} x=${p1.x.toFixed(0)}`, 20, 600);
+    ctx.fillText(`p2 ${p2.state} hp=${p2.hp.toFixed(0)} y=${p2.y.toFixed(0)} x=${p2.x.toFixed(0)} cd=${fireCd.toFixed(2)} d=${Math.abs(p1.x-p2.x).toFixed(0)}`, 20, 622);
+    ctx.fillText(`cam=${cam.toFixed(0)} 世界宽=${WORLD} 子弹=${bullets.length} 道具=${PROPS.filter(x=>x.alive).length} fps=${fpsAvg.toFixed(0)}`, 20, 644);
+  }
+  if (musicGain && AC){
+    const tension = 1 - Math.min(p1.hp, p2.hp) / 100;
+    musicGain.gain.value = 0.10 + tension * 0.06;
+  }
+  ctx.save();
+  ctx.font = '13px Menlo'; ctx.textAlign = 'left';
+  const cd1 = p2.immortalCd > 0 ? Math.ceil(p2.immortalCd) + 's' : '就绪';
+  const cd2 = p2.frenzy ? '狂化中 ' + Math.ceil(p2.frenzyLeft) + 's'
+            : (p2.frenzyCd > 0 ? Math.ceil(p2.frenzyCd) + 's' : '就绪');
+  ctx.fillStyle = 'rgba(60,50,80,.75)';
+  ctx.fillText(`枪手  不朽 ${cd1} · 狂化 ${cd2} · 盾 ${Math.round(p2.shield || 0)}`, 20, CH - 58);
+  const cd3 = p1.counterCd > 0 ? Math.ceil(p1.counterCd) + 's' : (p1.takenTotal > 0 ? '就绪·下一击引爆' : '就绪');
+  ctx.fillStyle = 'rgba(50,60,80,.75)';
+  ctx.fillText(`打手  还击 ${cd3} · 反击池 ${Math.round(p1.takenTotal)}/${SK.counterCap}`, 20, CH - 38);
+  ctx.restore();
+  if (combo >= 3){
+    ctx.save();
+    ctx.fillStyle = 'rgba(220,80,40,.92)';
+    ctx.font = 'bold 34px Menlo';
+    ctx.textAlign = 'center';
+    ctx.fillText(combo + ' HIT', CW/2, 120);
+    ctx.restore();
+  }
+  if (PROBE && !window.__probe){ window.__probe = 1; document.title = 'PROBE ok frames'; }
+  document.getElementById('hp1').style.width = Math.max(0, p1.hp / p1.maxHp * 100) + '%';
+  document.getElementById('hp2').style.width = Math.max(0, p2.hp / p2.maxHp * 100) + '%';
+  } catch (e) {
+    ctx.fillStyle = '#b00'; ctx.font = '14px Menlo';
+    ctx.fillText('JS: ' + e.message, 20, 70);
+  }
+  requestAnimationFrame(loop);
+}
+
+tryExternalBgm();
+fitCanvas();
+
+preload(()=>{
+  if (window.__started) return;
+  window.__started = true;
+  const lb = document.getElementById('loadbar'); if (lb) lb.style.display = 'none';
+  if (window.__EMBED) document.title = '单机版 已启动';
+  if (SELFTEST){
+    try { audioInit(); } catch (e) {}
+    tryJump(p1);
+    window.__st = { maxY: 0, deflected: 0, ticks: 0, bulletSeen: 0, bulletMoved: 0, b0x: 0,
+                    fireUpSeen: 0, highBullet: 0, dInfo: '', dodgeSeen: 0 };
+    setInterval(selfTestStep, 33);
+  }
+  if (new URLSearchParams(location.search).get('test') === 'leap'){
+    window.__chase = true;
+    setInterval(()=>{
+      if (window.__chase){ p1.x = p2.x - Math.round(BODY_H * 0.8); p1.y = 0; }
+    }, 16);
+    window.__leapTest = {t0: performance.now(), leaps: 0, maxDx: 0, lastX: p2.x};
+    setInterval(()=>{
+      if (p2.state === 'leap') window.__leapTest.leaps++;
+      window.__shots = bullets.length + (window.__shots || 0) - (window.__prevBullets || 0); window.__prevBullets = bullets.length;
+      window.__leapTest.maxDx = Math.max(window.__leapTest.maxDx, Math.abs(p2.x - p1.x));
+      document.title = `LEAPTEST leaps=${window.__leapTest.leaps} moved=${(p2.leapMoved||0).toFixed(0)} maxY=${(window.__maxLeapY||0).toFixed(0)} shots=${window.__shotCount||0} p2=${p2.state}`;
+    }, 200);
+  }
+  if (new URLSearchParams(location.search).get('test') === 'push'){
+    p1.x = p2.x - 200; keys['d'] = true;          // 不冻结，测真实推挤
+    let x0 = p1.x, minGap = 9999, last = p1.x, stuck = 0;
+    setInterval(()=>{
+      const g = Math.abs(p2.x - p1.x);
+      minGap = Math.min(minGap, g);
+      if (Math.abs(p1.x - last) < 0.5) stuck++; else stuck = 0;
+      last = p1.x;
+      document.title = `PUSHTEST moved=${(p1.x-x0).toFixed(0)} gap=${g.toFixed(0)} minGap=${minGap.toFixed(0)} stuck=${stuck} p1state=${p1.state} p2=${p2.state}`;
+    }, 250);
+  }
+  if (new URLSearchParams(location.search).get('test') === 'all')
+    regress().catch(e => { document.title = 'REGRESS-ERR ' + e.message; });
+  if (DIAG) setTimeout(()=>{
+    const d = window.__diag;
+    document.title = `DIAG atlas=${!!window.__ATLAS} caches=${Object.keys(imgCache).length} calls=${d.calls} nulls=${d.nulls} ok=${d.atlases}`;
+  }, 5000);
+  requestAnimationFrame(loop);
+});
+</script>
+</body>
+</html>

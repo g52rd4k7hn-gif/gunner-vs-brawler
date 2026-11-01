@@ -1,0 +1,15 @@
+{
+  "name": "枪手 vs 打手",
+  "short_name": "枪手vs打手",
+  "description": "火柴人格斗 · 三局两胜",
+  "start_url": "./game_offline.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#f7f4ee",
+  "theme_color": "#c85a3c",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
