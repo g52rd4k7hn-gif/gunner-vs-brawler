@@ -210,7 +210,7 @@ const DIFFS = {
   divine: {                       // 一丝神力：当前版本
     label: '一丝神力', desc: '完整技能 · 当前数值',
     hp: 4000, swing: 100, heavy: 200, ranged: 150, melee: 75, slideDodge: false,
-    skills: true, frenzyCd: 30, reload: 1.5, knockbackX: 1,
+    skills: true, frenzyCd: 30, reload: 1.5, knockbackX: 1, brawlerSkillsWeak: true,
     alwaysCharged: false, chargeSpeedX: 3, homing: 0, reflectable: true,
   },
   insane: {                       // 不可思议
@@ -1639,8 +1639,19 @@ function aiBrawler(dt){
   const d = Math.abs(t.x - f.x);
   f.face = t.x > f.x ? 1 : -1;
 
-  // 不可思议：全力
-  if (CFG.brawlerSkills && f.forceCd <= 0 && f.takenTotal > 500 && d > 120){
+  // 全力（不可思议：立即；一丝神力：5 秒预警的削弱版）
+  if ((CFG.brawlerSkills || CFG.brawlerSkillsWeak) && f.forceCd <= 0 && f.takenTotal > 500 && d > 120 && !f.forcePhase){
+    f.forcePhase = 1;
+    f.forceT = CFG.brawlerSkills ? 0.8 : 5;        // 预警时长
+    f.pullSpeed = CFG.brawlerSkills ? 1000 : 400;  // 吸附速度
+    f.pullDur = CFG.brawlerSkills ? f.forceT : 5;  // 吸附时长
+    f.forceCd = 10;
+    f.set('pull', {force:true});
+    showSkill('打手 · 全力（预警）', CFG.brawlerSkills ? '即将吸附！' : '5 秒后吸附', '#a050ff');
+    sfx('charge');
+    return;
+  }
+  if (false){
     f.pullT = 0.8; f.pullTarget = t; f.pullX0 = t.x;
     f.set('pull', {force:true});
     f.forceCd = f.lastStand ? 4 : 10;
@@ -1826,27 +1837,40 @@ function step(dt){
   if (playerSide === 'gunner' && !over) gunnerInput(dt);
   if (playerSide === 'gunner') aiBrawler(dt); else aiStep(dt);
 
-  // 打手·全力：把人以 1000/s 吸到面前，然后挥棒真伤
-  if (p1.pullT > 0){
+  // 打手·全力：预警 → 吸附 → 真伤
+  if (p1.forcePhase){
     const t = p2;
-    p1.pullT -= dt;
-    const dx = p1.x - t.x;
-    const step = 1000 * dt;
-    if (Math.abs(dx) > 70) t.x += Math.sign(dx) * Math.min(step, Math.abs(dx) - 60);
-    t.knockT = 0; t.leapT = 0;
-    if (Math.random() < 0.6)
-      sparks.push({x: t.x + (Math.random()*2-1)*40, y: GROUND - 60 - Math.random()*140, t: 0, big: true, rgba: 'rgba(160,80,255,'});
-    if (p1.pullT <= 0.06){
-      p1.pullT = 0;
-      p1.set('swing2', {force:true});
-      const dmg = Math.round(p1.takenTotal * 2);      // 真伤 = 反击池 ×2
-      p1.takenTotal = Math.max(0, p1.takenTotal - 500);
-      p2.shield = 0; p2.invuln = 0;                    // 无视防御
-      applyDamage(p2, dmg, Math.sign(p2.x - p1.x) || 1);
-      showSkill('全力！', dmg + ' 真实伤害', '#ff3bd0');
-      window.__pullHit = (window.__pullHit || 0) + 1; window.__pullDmg = dmg;
-      flash = Math.max(flash, .4); shake = Math.max(shake, 22); hitstop = Math.max(hitstop, .12);
-      boom(p2.x, GROUND - CHEST, 260, 'rgba(255,60,200,');
+    p1.forceT -= dt;
+    if (p1.forcePhase === 1){                      // 预警
+      if (Math.random() < 0.35)
+        sparks.push({x: p1.x + (Math.random()*2-1)*90, y: GROUND - 40 - Math.random()*180, t: 0, big: false, rgba: 'rgba(160,80,255,'});
+      if (p1.forceT <= 0){ p1.forcePhase = 2; p1.forceT = p1.pullDur; sfx('charge'); }
+    } else if (p1.forcePhase === 2){                // 吸附
+      const dx = p1.x - t.x, sp = p1.pullSpeed || 1000;
+      const step = sp * dt;
+      if (Math.abs(dx) > 70) t.x += Math.sign(dx) * Math.min(step, Math.abs(dx) - 60);
+      t.knockT = 0; t.leapT = 0; t.pullT = 0;
+      if (Math.random() < 0.5)
+        sparks.push({x: t.x + (Math.random()*2-1)*40, y: GROUND - 60 - Math.random()*140, t: 0, big: true, rgba: 'rgba(160,80,255,'});
+      if (p1.forceT <= 0){ p1.forcePhase = 3; p1.forceT = 0.35; p1.set('swing2', {force:true}); }
+    } else {                                        // 收招结算
+      if (p1.forceT <= 0){
+        p1.forcePhase = 0;
+        const inRange = Math.abs(p2.x - p1.x) < 200;
+        if (inRange){
+          const mult = CFG.brawlerSkills ? 2 : 1.5;
+          const dmg = Math.round(p1.takenTotal * mult);
+          p1.takenTotal = Math.max(0, p1.takenTotal - 500);
+          p2.shield = 0; p2.invuln = 0;
+          applyDamage(p2, dmg, Math.sign(p2.x - p1.x) || 1);
+          showSkill('全力！', dmg + ' 真实伤害', '#ff3bd0');
+          window.__pullHit = (window.__pullHit || 0) + 1; window.__pullDmg = dmg;
+          flash = Math.max(flash, .4); shake = Math.max(shake, 22); hitstop = Math.max(hitstop, .12);
+          boom(p2.x, GROUND - CHEST, 260, 'rgba(255,60,200,');
+        } else {
+          showSkill('全力 · 落空', '目标脱离了范围', '#888');
+        }
+      }
     }
   }
   if (p1.forceCd > 0) p1.forceCd -= dt;
@@ -2030,6 +2054,34 @@ function drawFighter(f){
     ctx.arc(f.x - cam, GROUND - BODY_H * 0.55 - (f.y||0) + camY, 46 + k * 26, 0, 7);
     ctx.stroke();
     ctx.restore();
+  }
+  if (f === p1 && f.forcePhase === 1){          // 全力预警：扩散紫环 + 倒计时
+    const cx = f.x - cam, cy = GROUND - CHEST - (f.y||0) + camY;
+    for (let i = 0; i < 2; i++){
+      const t = (performance.now() / 900 + i / 2) % 1;
+      const r = 30 + 190 * t;
+      ctx.strokeStyle = `rgba(160,80,255,${0.6 * (1 - t)})`;
+      ctx.lineWidth = 2 + 4 * (1 - t);
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(200,140,255,.95)'; ctx.font = 'bold 15px Menlo'; ctx.textAlign = 'center';
+    ctx.fillText('全力预警 ' + f.forceT.toFixed(1) + 's', cx, cy - 120);
+  }
+  if (f === p1 && f.forcePhase === 2){          // 吸附中：漩涡
+    const cx = f.x - cam, cy = GROUND - CHEST - (f.y||0) + camY;
+    for (let i = 0; i < 3; i++){
+      const t = (performance.now() / 500 + i / 3) % 1;
+      const r = 50 + 140 * t;
+      ctx.strokeStyle = `rgba(160,80,255,${0.5 * (1 - t)})`;
+      ctx.lineWidth = 3 + 3 * (1 - t);
+      ctx.beginPath();
+      for (let a = 0; a <= Math.PI * 2; a += 0.3){
+        const rr = r * (0.75 + 0.25 * Math.sin(a * 3 + t * 6));
+        const px = cx + Math.cos(a) * rr, py = cy + Math.sin(a) * rr * 0.72;
+        if (a === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
   }
   if (f === p1 && f.pullT > 0){                 // 全力：漩涡吸附特效
     const cx = f.x - cam, cy = GROUND - CHEST - (f.y||0) + camY;
@@ -2487,6 +2539,22 @@ preload(()=>{
           keys['k'] = false;
           ok('bigleap', playerSide !== 'gunner' || CFG.slideDodge || g.leapT > 0 || Math.abs(g.leapDist || 0) > 400,
              'lt' + (g.leapT||0).toFixed(2) + ',d' + (g.leapDist||0)); }
+
+        // 9.9 打手全力（削弱版）：预警 5s → 400/s 吸附 5s → 结算
+        if (playerSide === 'gunner' && CFG.brawlerSkillsWeak){
+          resetRound(); over = false;
+          p1.takenTotal = 800; p1.forceCd = 0; p1.forcePhase = 0;
+          p2.x = p1.x + 900; p2.hp = p2.maxHp; p2.invuln = 0;
+          const x0 = p2.x; let warnSeen = false, pullSeen = false;
+          for (let i = 0; i < 900; i++){
+            step(0.02);
+            if (p1.forcePhase === 1) warnSeen = true;
+            if (p1.forcePhase === 2) pullSeen = true;
+            if (p1.forcePhase === 0 && warnSeen && pullSeen) break;
+          }
+          ok('forceWeak', warnSeen && pullSeen && p2.hp < p2.maxHp,
+             `warn${warnSeen?1:0},pull${pullSeen?1:0},d${Math.round(Math.abs(p2.x-x0))},hp${Math.round(p2.hp)}`);
+        }
 
         // 10 枪手模式开火
         if (playerSide === 'gunner'){
