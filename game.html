@@ -386,7 +386,7 @@ const START_X = WORLD*0.46;
 const p1 = new Fighter({name:'打手', x: START_X - 210, face: 1, scale: 0.62, acts: BRAWLER});
 const p2 = new Fighter({name:'枪手', x: START_X + 210, face: -1, scale: 0.62, acts: GUNNER});
 
-let score1 = 0, score2 = 0, roundNo = 1, slowmo = 0, cam = 0, camY = 0, hitstop = 0, shake = 0, flash = 0, over = false;
+let zoom = 1, score1 = 0, score2 = 0, roundNo = 1, slowmo = 0, cam = 0, camY = 0, hitstop = 0, shake = 0, flash = 0, over = false;
 let fireCd = 0, attackCd = 0, parryCd = 0, parryReq = false, jumpReq = false, propT = 0;
 // ── 技能参数 ──
 const SK = {
@@ -1333,6 +1333,24 @@ function tryCounter(){
 
 // ── 主循环 ──
 function step(dt){
+  // 枪手跑出画面 → 边缘箭头提示
+  if (!over){
+    const sx = p2.x - cam;
+    if (sx < 40 || sx > CW - 40){
+      const left = sx < 40;
+      const ay = GROUND - 200 - (p2.y || 0) + camY;
+      ctx.save();
+      ctx.fillStyle = 'rgba(200,60,50,.9)';
+      ctx.beginPath();
+      const ax = left ? 22 : CW - 22, d = left ? -1 : 1;
+      ctx.moveTo(ax, ay); ctx.lineTo(ax + d * 18, ay - 12); ctx.lineTo(ax + d * 18, ay + 12);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(200,60,50,.85)'; ctx.font = '12px Menlo';
+      ctx.textAlign = left ? 'left' : 'right';
+      ctx.fillText(Math.round(Math.abs(p2.x - p1.x)) + 'px', left ? 46 : CW - 46, ay + 4);
+      ctx.restore();
+    }
+  }
   if (AUTO.length){
     autoT += dt;
     if (AUTO.includes('jump') && p1.y === 0 && p1.jumps === 0 && autoT > 1.1){ autoT = 0; tryJump(p1); }
@@ -1853,7 +1871,13 @@ function loop(now){
   ctx.setTransform(DPR,0,0,DPR,0,0);
   ctx.clearRect(0,0,CW,CH);
   ctx.save();
+  const distToFoe = Math.abs(p2.x - p1.x);
+  const zoomTarget = Math.max(0.62, Math.min(1, 1050 / (distToFoe + 420)));
+  zoom += (zoomTarget - zoom) * Math.min(1, dt * 3);
   ctx.translate(0, camY);
+  ctx.translate(CW / 2, CH / 2);
+  ctx.scale(zoom, zoom);
+  ctx.translate(-CW / 2, -CH / 2);
   if (shake > 0){
     ctx.translate((Math.random()*2-1)*shake, (Math.random()*2-1)*shake*0.6);
     shake = Math.max(0, shake - dt*90);
@@ -1864,6 +1888,24 @@ function loop(now){
   drawBullets(); drawFX(dt); drawDust(); drawFloats();
   ctx.restore();
 
+  // 枪手跑出画面 → 边缘箭头提示
+  if (!over){
+    const sx = p2.x - cam;
+    if (sx < 40 || sx > CW - 40){
+      const left = sx < 40;
+      const ay = GROUND - 200 - (p2.y || 0) + camY;
+      ctx.save();
+      ctx.fillStyle = 'rgba(200,60,50,.9)';
+      ctx.beginPath();
+      const ax = left ? 22 : CW - 22, d = left ? -1 : 1;
+      ctx.moveTo(ax, ay); ctx.lineTo(ax + d * 18, ay - 12); ctx.lineTo(ax + d * 18, ay + 12);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(200,60,50,.85)'; ctx.font = '12px Menlo';
+      ctx.textAlign = left ? 'left' : 'right';
+      ctx.fillText(Math.round(Math.abs(p2.x - p1.x)) + 'px', left ? 46 : CW - 46, ay + 4);
+      ctx.restore();
+    }
+  }
   if (AUTO.length){
     ctx.fillStyle = 'rgba(200,60,40,.9)'; ctx.font = 'bold 20px Menlo';
     ctx.fillText('自动演示中（URL 带 ?auto=）', 20, 36);
