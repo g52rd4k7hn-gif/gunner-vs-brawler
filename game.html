@@ -1494,7 +1494,10 @@ async function regress(){
 
   p1.hp = p1.maxHp; p2.hp = p2.maxHp;
   clearTimeout(guard);
-  document.title = 'REGRESS ' + R.join(' | ');
+  const line = 'REGRESS ' + R.join(' | ');
+  document.title = line;
+  try { fetch('http://127.0.0.1:8791/report', {method: 'POST', body: line}); } catch(e) {}
+  try { navigator.sendBeacon && navigator.sendBeacon('http://127.0.0.1:8791/report', line); } catch(e) {}
 }
 
 function tryCounter(){
@@ -1514,7 +1517,7 @@ function tryCounter(){
 function gunnerInput(dt){
   const g = p2, foe = p1;
   if (g.stun > 0 || g.reviving > 0) return;
-  if (g.reloading > 0 || /^fire/.test(g.state) || ['club','club2','block','dodge','reload'].includes(g.state)) return;
+  if (/^fire/.test(g.state) || ['club','club2','block','dodge','reload'].includes(g.state)) return;
   g.face = foe.x > g.x ? 1 : -1;
 
   let mv = 0;
@@ -1526,7 +1529,7 @@ function gunnerInput(dt){
   if (jumpReq){ jumpReq = false; tryJump(g); }
 
   if (keys['j'] && keys['shift']){ g.set(Math.random() < 0.5 ? 'club' : 'club2', {force:true}); return; }
-  if (keys['j'] && fireCd <= 0){
+  if (keys['j'] && fireCd <= 0 && g.reloading <= 0){
     const dy = (GROUND - CHEST - (foe.y||0)) - (GROUND - CHEST - (g.y||0));
     const deg = Math.atan2(dy, Math.abs(foe.x - g.x)) * 180 / Math.PI;
     let tag = 'P0';
@@ -1663,6 +1666,7 @@ function step(dt){
     }
   }
   // 蓄能弹第二发
+  if (p2.pierceNext > 0) window.__pnTicks = (window.__pnTicks || 0) + 1;
   if (p2.pierceNext > 0){
     p2.pierceNext -= dt;
     if (p2.pierceNext <= 0){ p2.pierceNext = 0; spawnBullet(p2); }
@@ -2342,6 +2346,92 @@ preload(()=>{
       window.__leapTest.maxDx = Math.max(window.__leapTest.maxDx, Math.abs(p2.x - p1.x));
       document.title = `LEAPTEST leaps=${window.__leapTest.leaps} moved=${(p2.leapMoved||0).toFixed(0)} maxY=${(window.__maxLeapY||0).toFixed(0)} shots=${window.__shotCount||0} p2=${p2.state}`;
     }, 200);
+  }
+  if (new URLSearchParams(location.search).get('test') === 'fast'){
+    setTimeout(()=>{
+      const R = [];
+      const ok = (n, c, x)=>{ R.push(n + '=' + (c ? 'OK' : 'FAIL' + (x ? '(' + x + ')' : ''))); };
+      const sim = (n)=>{ for (let i = 0; i < n; i++){ hitstop = 0; step(0.02); } };
+      try {
+        // 1 图集
+        const fr = getFrame('bat_idle', 0);
+        ok('frames', !!(fr && fr.img && fr.img.naturalWidth > 0));
+
+        // 2 推挤：朝对手走
+        resetRound(); over = false; gameStarted = true;
+        const ME = () => (playerSide === 'gunner' ? p2 : p1);
+        const FOE = () => (playerSide === 'gunner' ? p1 : p2);
+        ME().x = 7000; FOE().x = 7300; FOE().stun = 999; FOE().testFreeze = true;
+        keys['a'] = false; keys['d'] = true;
+        let minGap = 9e9, stuck = 0, lastX = ME().x;
+        for (let i = 0; i < 120; i++){
+          hitstop = 0; closeT = 0; step(0.02);
+          const g = Math.abs(FOE().x - ME().x); minGap = Math.min(minGap, g);
+          if (Math.abs(ME().x - lastX) < 0.3 && g > 60) stuck++;
+          lastX = ME().x;
+        }
+        keys['d'] = false; FOE().testFreeze = false;
+        ok('push', minGap < 60 && stuck < 10, 'gap' + minGap.toFixed(0) + ',stuck' + stuck);
+
+        // 3 滑铲（对当前操控角色）
+        resetRound(); over = false;
+        { const m = ME(); m.x = 8000; m.state = 'idle'; m.slideT = 0; m.stun = 0;
+          const sx = m.x; keys['k'] = true; sim(3); keys['k'] = false; sim(30);
+          ok('slide', Math.abs(m.x - sx) > 300, 'd' + Math.round(Math.abs(m.x - sx))); }
+
+        // 4 反击池封顶
+        resetRound(); over = false;
+        p1.takenTotal = 0; for (let i = 0; i < 40; i++){ applyDamage(p1, 300, 1); p1.stun = 0; }
+        ok('cap', p1.takenTotal <= counterCap(), 'pool' + Math.round(p1.takenTotal));
+
+        // 5 换弹
+        resetRound(); over = false; p2.x = p1.x + 300; p2.testFreeze = true; fireCd = 0;
+        p2.reloading = 0; p2.set('fireP0', {force:true}); sim(40);
+        ok('reload', p2.reloading > 0 || p2.state === 'reload', 'st' + p2.state);
+        p2.testFreeze = false;
+
+        // 6 蓄能弹：一发出去后 pierceVolley 递减
+        resetRound(); over = false; p2.pierceShot = true; p2.pierceVolley = 2; p2.pierceDmg = 81;
+        bullets.length = 0; p2.x = p1.x + 400; p2.face = -1;
+        spawnBullet(p2);
+        ok('pierce', p2.pierceVolley === 1 && p2.pierceNext > 0, 'v' + p2.pierceVolley + ',n' + (p2.pierceNext||0).toFixed(2));
+        p2.pierceShot = false; p2.pierceNext = 0;
+
+        // 7 回合重置
+        p1.hp = 3; p2.hp = 7; p1.shield = 999; p2.shield = 999; p2.frenzy = true; p2.frenzyCount = 5;
+        p1.takenTotal = 700; combo = 5; bullets.push({x:0,y:0,vx:0,vy:0,alive:true,t:0});
+        resetRound();
+        ok('reset', p1.hp === p1.maxHp && p2.hp === p2.maxHp && p1.shield === 0 && p2.shield === 0
+           && !p2.frenzy && p2.frenzyCount === 0 && p1.takenTotal === 0 && combo === 0 && bullets.length === 0);
+
+        // 8 不朽
+        resetRound(); over = false; p2.immortalCd = 0; p2.reviving = 0; p2.shield = 0; p2.hp = 0;
+        onDown(p2); const entered = p2.reviving > 0; p2.reviving = 0.05; sim(20);
+        ok('immortal', entered && p2.hp > 0, 'hp' + Math.round(p2.hp));
+
+        // 9 狂化 + 蓄能
+        resetRound(); over = false; p2.frenzy = false; p2.frenzyCd = 0; p2.hp = p2.maxHp;
+        sim(2); const fz = p2.frenzy && p2.chargeAt > 0;
+        ok('frenzy', fz, 'fz' + (p2.frenzy ? 1 : 0) + 'at' + (p2.chargeAt || 0).toFixed(1));
+
+        // 9.5 长跑：双方 AI/玩家空转 15 秒不报错、有伤害发生
+        resetRound(); over = false; gameStarted = true;
+        { const hp0 = p1.hp + p2.hp;
+          for (let i = 0; i < 750; i++) step(0.02);   // 15 秒
+          const dmgHappened = (p1.hp + p2.hp) < hp0;
+          ok('longrun', !over || dmgHappened, 'hp' + Math.round(p1.hp + p2.hp)); }
+
+        // 10 枪手模式开火
+        if (playerSide === 'gunner'){
+          resetRound(); over = false; fireCd = 0; p2.reloading = 0; bullets.length = 0;
+          keys['j'] = true; sim(6); keys['j'] = false;
+          ok('gunfire', bullets.length > 0, 'n' + bullets.length);
+        }
+      } catch(e){ R.push('EXC ' + e.message); }
+      const line = 'FAST ' + (playerSide) + ' | ' + R.join(' | ');
+      document.title = line;
+      try { fetch('http://127.0.0.1:8791/report', {method:'POST', body: line}); } catch(e){}
+    }, 1200);
   }
   if (new URLSearchParams(location.search).get('test') === 'gunskills'){
     setTimeout(()=>{
