@@ -1236,7 +1236,7 @@ function checkHit(a, b, windows, dmg, rangeOk){
   sfx(b.hp <= 0 ? 'ko' : (combo >= 3 ? 'block' : 'hit'));
   if (a === p2 && p2.frenzy) dmg *= p2.dmgMult;
   let counterExtra = 0;
-  if (CFG.skills && a === p1 && p1.counterCd <= 0 && p1.takenTotal > 0){   // 还击
+  if (CFG.skills && a === p1 && !a.forcePhase && p1.counterCd <= 0 && p1.takenTotal > 0 && !p1.forcePool){   // 还击（全力期间不抢跑）
     counterExtra = Math.round(p1.takenTotal);
     p1.takenTotal = 0;
     p1.counterCd = SK.counterReady;
@@ -1648,6 +1648,7 @@ function aiBrawler(dt){
   // 全力（不可思议：立即；一丝神力：5 秒预警的削弱版）
   if ((CFG.brawlerSkills || CFG.brawlerSkillsWeak) && f.forceCd <= 0 && f.takenTotal > 500 && d > 120 && !f.forcePhase){
     f.forcePhase = 1;
+    f.forcePool = Math.round(f.takenTotal);          // 快照：避免中途被还击清空
     f.forceT = CFG.brawlerSkills ? 0.8 : 5;        // 预警时长
     f.pullSpeed = CFG.brawlerSkills ? 1000 : 400;  // 吸附速度
     f.pullDur = CFG.brawlerSkills ? f.forceT : 5;  // 吸附时长
@@ -1868,7 +1869,8 @@ function step(dt){
         const inRange = Math.abs(p2.x - p1.x) < 200;
         if (inRange){
           const mult = CFG.brawlerSkills ? 2 : 1.5;
-          const dmg = Math.round(p1.takenTotal * mult);
+          const dmg = Math.round((p1.forcePool || p1.takenTotal) * mult);   // 用快照，不被还击影响
+          p1.forcePool = 0;
           p1.takenTotal = Math.max(0, p1.takenTotal - 500);
           p2.shield = 0; p2.invuln = 0;
           applyDamage(p2, dmg, Math.sign(p2.x - p1.x) || 1);
@@ -2557,6 +2559,14 @@ preload(()=>{
           }
           // 全力期间打手不应有其它动作
           ok('forceLock', p1.forcePhase === 0 || p1.state === 'pull' || p1.state === 'swing2', 'st_' + p1.state);
+          // 结算伤害用快照：中途池子被清也不影响
+          { resetRound(); over = false; p1.takenTotal = 1200; p1.forcePool = 1200;
+            p1.takenTotal = 0;                       // 模拟被还击清空
+            const hpBefore = p2.hp;
+            p1.forcePhase = 3; p1.forceT = 0.01; p2.x = p1.x + 100;
+            for (let i = 0; i < 4; i++) step(0.02);
+            const dealt = hpBefore - p2.hp;
+            ok('forceDmg', dealt > 0, 'dmg' + Math.round(dealt)); }
           ok('forceWeak', warnSeen && pullSeen && p2.hp < p2.maxHp,
              `warn${warnSeen?1:0},pull${pullSeen?1:0},d${Math.round(Math.abs(p2.x-x0))},hp${Math.round(p2.hp)}`);
         }
