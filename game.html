@@ -109,6 +109,7 @@
     <div class="opts">
       <button data-d="normal"><b>普通</b><span>无技能 · 最初数值（血量 500）</span></button>
       <button data-d="divine"><b>一丝神力</b><span>完整技能 · 当前数值</span></button>
+      <button id="roleBtn" type="button"><b>扮演：打手</b><span>点一下切换成「扮演枪手」</span></button>
       <button data-d="insane"><b>不可思议</b><span>狂化无冷却 · 每枪蓄能 · 2.5s 装弹<br>击飞 ×15 · 4 倍速不可反弹</span></button>
     </div>
   </div>
@@ -147,6 +148,7 @@ const SPRITES = {
   "bat_dodge_r": {n: 17, loop: false},
   "bat_jump": {n: 15, loop: false},
   "bat_leap_back": {n: 22, loop: false},
+  "bat_pull": {n: 17, loop: false},
   "bat_slide": {n: 17, loop: false},
   "bat_dive": {n: 19, loop: false},
   "bat_getup": {n: 19, loop: false},
@@ -207,14 +209,16 @@ const DIFFS = {
     alwaysCharged: false, chargeSpeedX: 3, homing: 0, reflectable: true,
   },
   insane: {                       // 不可思议
+    brawlerSkills: true,          // 打手（作为 Boss 时）拥有 全力 / 最后的反击
     label: '不可思议', desc: '狂化无冷却 · 每枪蓄能 · 2.5 秒装弹 · 击飞 ×15 · 4 倍速不可反弹',
     hp: 4000, swing: 100, heavy: 200, ranged: 150, melee: 75,
     skills: true, frenzyCd: 0, reload: 2.5, knockbackX: 15,
-    alwaysCharged: true, chargeSpeedX: 4, homing: 0, reflectable: false,
+    alwaysCharged: true, chargeSpeedX: 4, homing: 0, reflectable: false, brawlerSkills: true,
   },
 };
 let CFG = DIFFS.divine;
 let gameStarted = false;
+let playerSide = 'brawler';     // 'brawler' | 'gunner'
 const CW = 1280, CH = 720, GROUND = 640, FPS = 24;
 const WORLD = CW * 20;                 // 地图放大 20 倍
 const GRAV = 2300, JUMP_V = 1400;      // 跳起约 425px（原来的 3 倍多）
@@ -339,6 +343,7 @@ class Fighter{
     this.frenzyStacks = 0; this.frenzyCount = 0; this.pierceShot = false; this.pierceDmg = 0; this.chargeWarn = 0;
     this.knockT = 0; this.knockDir = 1; this.knockX0 = 0; this.knockDist = 0;
     this.shield = 0; this.shieldMax = 0;
+    this.forceCd = 0; this.pullT = 0; this.lastStand = false; this.lastStandT = 0;
     this.storedDmg = 0; this.takenTotal = 0; this.counterCd = 0;
   }
   get act(){ return this.acts[this.state] || this.acts.idle; }
@@ -437,7 +442,7 @@ function boom(x, y, r, rgba){
 
 const BRAWLER = {idle:'bat_idle', walk:'bat_walk', run:'bat_run', jump:'bat_jump',
   swing:'bat_swing_h', swing2:'bat_swing_v', dodge:'bat_slide', parry:'bat_parry',
-  hit:'bat_stagger', ko:'bat_kneel', leap:'bat_leap_back'};
+  hit:'bat_stagger', ko:'bat_kneel', leap:'bat_leap_back', pull:'bat_pull'};
 const GUNNER = {idle:'gun_idle', walk:'gun_idle', run:'gun_run', jump:'gun_idle', leap:'gun_leap_back',
   aim:'gun_aim_b', fire:'gun_fire_b', aimUp:'gun_aim_up_b', fireUp:'gun_fire_up_b',
   aimM55:'gun_aim_am55', fireM55:'gun_fire_am55',
@@ -659,9 +664,20 @@ function applyDifficulty(key){
 function setupStart(){
   const st = document.getElementById('start');
   if (!st) return;
-  st.querySelectorAll('button').forEach(b=>{
+  const roleBtn = document.getElementById('roleBtn');
+  if (roleBtn){
+    roleBtn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      playerSide = (playerSide === 'brawler') ? 'gunner' : 'brawler';
+      roleBtn.innerHTML = playerSide === 'gunner'
+        ? '<b>扮演：枪手</b><span>点一下切换成「扮演打手」</span>'
+        : '<b>扮演：打手</b><span>点一下切换成「扮演枪手」</span>';
+    });
+  }
+  st.querySelectorAll('button[data-d]').forEach(b=>{
     b.addEventListener('click', ()=>{ audioInit(); startExternalBgm(); applyDifficulty(b.dataset.d); });
   });
+  if (new URLSearchParams(location.search).get('role') === 'gunner') playerSide = 'gunner';
   const q = new URLSearchParams(location.search).get('difficulty');
   if (q && DIFFS[q]) applyDifficulty(q);       // 便于测试/直连
 }
@@ -1482,6 +1498,56 @@ function tryCounter(){
   setTimeout(()=>{ if (!over && p2.hp > 0){ p2.hurt(dmg, Math.sign(p2.x - p1.x)); hitstop = .16; shake = 22; flash = .3; } }, 180);
 }
 
+// ── 玩家操控枪手 ──
+function gunnerInput(dt){
+  const g = p2, foe = p1;
+  if (g.stun > 0 || g.reviving > 0) return;
+  if (g.reloading > 0 || /^fire/.test(g.state) || ['club','club2','block','dodge','reload'].includes(g.state)) return;
+  g.face = foe.x > g.x ? 1 : -1;
+
+  let mv = 0;
+  if (keys['a']) mv--;
+  if (keys['d']) mv++;
+  if (mv !== 0){ g.x += mv * 240 * (keys['shift'] ? 1.6 : 1) * dt; g.face = mv; g.set('walk'); }
+  else g.set('idle');
+
+  if (jumpReq){ jumpReq = false; tryJump(g); }
+
+  if (keys['j'] && keys['shift']){ g.set(Math.random() < 0.5 ? 'club' : 'club2', {force:true}); return; }
+  if (keys['j'] && fireCd <= 0){
+    const dy = (GROUND - CHEST - (foe.y||0)) - (GROUND - CHEST - (g.y||0));
+    const deg = Math.atan2(dy, Math.abs(foe.x - g.x)) * 180 / Math.PI;
+    let tag = 'P0';
+    if (deg < -40) tag = 'M55'; else if (deg < -12) tag = 'M25'; else if (deg > 9) tag = 'P18';
+    g.set('fire' + tag, {force:true});
+    fireCd = 1.2;
+    return;
+  }
+  if (keys['k'] && g.slideT <= 0){ g.set('dodge', {force:true}); }
+  if (parryReq){ parryReq = false; if (blockCd <= 0){ g.set('block', {force:true}); g.blockT = 0.5; blockCd = 1.2; } }
+}
+
+// ── AI 操控打手 ──
+function aiBrawler(dt){
+  const f = p1, t = p2;
+  if (f.stun > 0 || over || f.reviving > 0) return;
+  if (['swing','swing2','hit','ko','dodge','pull','parry'].includes(f.state)) return;
+  const d = Math.abs(t.x - f.x);
+  f.face = t.x > f.x ? 1 : -1;
+
+  // 不可思议：全力
+  if (CFG.brawlerSkills && f.forceCd <= 0 && f.takenTotal > 500 && d > 120){
+    f.pullT = 0.8; f.pullTarget = t; f.pullX0 = t.x;
+    f.set('pull', {force:true});
+    f.forceCd = f.lastStand ? 4 : 10;
+    sfx('charge');
+    return;
+  }
+  if (d > 200){ f.x += f.face * 210 * dt; f.set('walk'); return; }
+  if (attackCd <= 0){ f.set(Math.random() < 0.35 ? 'swing2' : 'swing', {force:true}); attackCd = 0.9; return; }
+  f.set('idle');
+}
+
 // ── 主循环 ──
 function step(dt){
   // 枪手跑出画面 → 边缘箭头提示
@@ -1612,7 +1678,7 @@ function step(dt){
     return;                                                    // 读条期间不做别的
   }
 
-  if (p1.stun <= 0 && !over){
+  if (playerSide === 'brawler' && p1.stun <= 0 && !over){
     if (['idle','walk','run'].includes(p1.state)){
       let mv = 0;
       if (keys['a']) mv--;
@@ -1656,9 +1722,49 @@ function step(dt){
     if (keys['j'] && p1.state === 'jump'){ p1.set('swing', {force:true}); p1.vy = Math.min(p1.vy, -200); }   // 空中挥击：略微下坠
     if (!['idle','walk','run','jump'].includes(p1.state)) { jumpReq = false; parryReq = false; }
     if (keys['w'] && ['jump'].includes(p1.state) && p1.jumps < 2 && jumpReq){ }
-  } else { jumpReq = false; parryReq = false; }
+  } else if (playerSide === 'brawler') { jumpReq = false; parryReq = false; }
 
-  aiStep(dt);
+  // 玩家 = 枪手：自己控制枪手
+  if (playerSide === 'gunner' && !over) gunnerInput(dt);
+  if (playerSide === 'gunner') aiBrawler(dt); else aiStep(dt);
+
+  // 打手·全力：把人以 1000/s 吸到面前，然后挥棒真伤
+  if (p1.pullT > 0){
+    const t = p2;
+    p1.pullT -= dt;
+    const dx = p1.x - t.x;
+    const step = 1000 * dt;
+    if (Math.abs(dx) > 70) t.x += Math.sign(dx) * Math.min(step, Math.abs(dx) - 60);
+    t.knockT = 0; t.leapT = 0;
+    if (Math.random() < 0.6)
+      sparks.push({x: t.x + (Math.random()*2-1)*40, y: GROUND - 60 - Math.random()*140, t: 0, big: true, rgba: 'rgba(160,80,255,'});
+    if (p1.pullT <= 0.06){
+      p1.pullT = 0;
+      p1.set('swing2', {force:true});
+      const dmg = Math.round(p1.takenTotal * 2);      // 真伤 = 反击池 ×2
+      p1.takenTotal = Math.max(0, p1.takenTotal - 500);
+      p2.shield = 0; p2.invuln = 0;                    // 无视防御
+      applyDamage(p2, dmg, Math.sign(p2.x - p1.x) || 1);
+      showSkill('全力！', dmg + ' 真实伤害', '#ff3bd0');
+      window.__pullHit = (window.__pullHit || 0) + 1; window.__pullDmg = dmg;
+      flash = Math.max(flash, .4); shake = Math.max(shake, 22); hitstop = Math.max(hitstop, .12);
+      boom(p2.x, GROUND - CHEST, 260, 'rgba(255,60,200,');
+    }
+  }
+  if (p1.forceCd > 0) p1.forceCd -= dt;
+
+  // 打手·最后的反击：死亡后还能撑 30 秒
+  if (CFG.brawlerSkills && p1.hp <= 0 && !p1.lastStand){
+    p1.lastStand = true; p1.lastStandT = 30; p1.hp = 1;
+    p1.takenTotal = Math.max(p1.takenTotal, 2000);
+    showSkill('最后的反击！', '30 秒不倒 · 反击池保底 2000', '#ff7a1a');
+    flash = Math.max(flash, .5); shake = Math.max(shake, 26);
+  }
+  if (p1.lastStand && p1.lastStandT > 0){
+    p1.lastStandT -= dt;
+    if (p1.hp < 1) p1.hp = 1;
+    if (p1.lastStandT <= 0){ p1.hp = 0; p1.lastStand = false; }
+  }
 
   // 被复活冲击波打飞
   if (p1.knockT > 0){
@@ -1825,6 +1931,22 @@ function drawFighter(f){
     ctx.arc(f.x - cam, GROUND - BODY_H * 0.55 - (f.y||0) + camY, 46 + k * 26, 0, 7);
     ctx.stroke();
     ctx.restore();
+  }
+  if (f === p1 && f.pullT > 0){                 // 全力：漩涡吸附特效
+    const cx = f.x - cam, cy = GROUND - CHEST - (f.y||0) + camY;
+    for (let i = 0; i < 3; i++){
+      const t = (performance.now() / 700 + i / 3) % 1;
+      const r = 40 + 150 * t;
+      ctx.strokeStyle = `rgba(160,80,255,${0.55 * (1 - t)})`;
+      ctx.lineWidth = 3 + 3 * (1 - t);
+      ctx.beginPath();
+      for (let a = 0; a <= Math.PI * 2; a += 0.3){
+        const rr = r * (0.75 + 0.25 * Math.sin(a * 3 + t * 6));
+        const px = cx + Math.cos(a) * rr, py = cy + Math.sin(a) * rr * 0.72;
+        if (a === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
   }
   if (f === p2 && f.chargeWarn > 0){
     const cx = f.x - cam, cy = GROUND - BODY_H - 26 - (f.y||0) + camY;
@@ -2170,6 +2292,40 @@ preload(()=>{
       window.__leapTest.maxDx = Math.max(window.__leapTest.maxDx, Math.abs(p2.x - p1.x));
       document.title = `LEAPTEST leaps=${window.__leapTest.leaps} moved=${(p2.leapMoved||0).toFixed(0)} maxY=${(window.__maxLeapY||0).toFixed(0)} shots=${window.__shotCount||0} p2=${p2.state}`;
     }, 200);
+  }
+  if (new URLSearchParams(location.search).get('test') === 'gunrole'){
+    setTimeout(()=>{
+      const out = ['扮演=' + playerSide];
+      try {
+        p2.x = p1.x + 400; p2.face = -1; fireCd = 0; p2.reloading = 0; p2.state = 'idle';
+        keys['d'] = true; const gx = p2.x;
+        for (let i = 0; i < 20; i++) step(0.02);
+        keys['d'] = false;
+        out.push('按D移动=' + Math.round(p2.x - gx) + 'px');
+        bullets.length = 0; keys['j'] = true;
+        for (let i = 0; i < 6; i++) step(0.02);
+        keys['j'] = false;
+        out.push('按J开火 状态=' + p2.state + ' 子弹=' + bullets.length);
+      } catch(e){ out.push('ERR ' + e.message); }
+      document.title = 'GUNROLE ' + out.join(' | ');
+    }, 900);
+  }
+  if (new URLSearchParams(location.search).get('test') === 'role'){
+    setTimeout(()=>{
+      const out = [];
+      out.push('扮演=' + playerSide);
+      out.push('打手技能=' + (CFG.brawlerSkills ? 1 : 0));
+      try {
+        p1.takenTotal = 800; p1.forceCd = 0; p2.x = p1.x + 400;
+        p1.pullT = 0.8; p1.set('pull', {force:true}); p1.forceCd = 10;
+        const x0 = p2.x;
+        for (let i = 0; i < 80 && p1.pullT > 0; i++) step(0.02);
+        out.push('拉近=' + Math.round(Math.abs(x0 - p2.x)) + 'px 枪手血' + Math.round(p2.hp));
+        out.push('冷却=' + p1.forceCd.toFixed(1) + 's');
+        out.push('全力执行次数=' + (window.__pullHit || 0) + ' 伤害=' + (window.__pullDmg || 0) + ' 剩余池=' + Math.round(p1.takenTotal));
+      } catch(e){ out.push('ERR ' + e.message); }
+      document.title = 'ROLE ' + out.join(' | ');
+    }, 900);
   }
   if (new URLSearchParams(location.search).get('test') === 'bar'){
     setTimeout(()=>{
