@@ -192,8 +192,9 @@ function preload(done){
   const jobs = [];
   if (ATLAS){
     // 图集模式：一个动作一张图，53 个请求搞定
-    for (const a of ESSENTIAL) if (ATLAS[a]) jobs.push(['A:' + a, `atlases/${a}.webp`]);
-    for (const a of ACT) if (ATLAS[a] && !ESSENTIAL.includes(a)) jobs.push(['A:' + a, `atlases/${a}.webp`]);
+    const srcOf = a => (window.__ATLAS_SRC && window.__ATLAS_SRC[a]) || `atlases/${a}.webp`;
+    for (const a of ESSENTIAL) if (ATLAS[a]) jobs.push(['A:' + a, srcOf(a)]);
+    for (const a of ACT) if (ATLAS[a] && !ESSENTIAL.includes(a)) jobs.push(['A:' + a, srcOf(a)]);
   } else {
     const ordered = [];
     for (const a of ESSENTIAL) if (SPRITES[a]) for (let i = 0; i < SPRITES[a].n; i++) ordered.push([a + ':' + i, framePath(a, i)]);
@@ -275,7 +276,7 @@ class Fighter{
     this.reviving = 0; this.immortalCd = 0; this.reviveFull = false;
     this.frenzyStacks = 0; this.frenzyCount = 0; this.pierceShot = false; this.pierceDmg = 0; this.chargeWarn = 0;
     this.knockT = 0; this.knockDir = 1; this.knockX0 = 0; this.knockDist = 0;
-    this.shield = 0;
+    this.shield = 0; this.shieldMax = 0;
     this.storedDmg = 0; this.takenTotal = 0; this.counterCd = 0;
   }
   get act(){ return this.acts[this.state] || this.acts.idle; }
@@ -315,8 +316,9 @@ function applyDamage(t, dmg, dir){
     }
   }
   if (t === p2 && p2.frenzy) real *= 1;            // 狂化不加受伤
-  if (t.shield > 0 && real > 0){                    // 护盾先抗
-    const absorbed = Math.min(t.shield, real);
+  if (t.shield > 0 && real > 0){                    // 护盾先抗（单次上限 = 历史最高护盾/3）
+    const cap = Math.max(1, Math.round((t.shieldMax || 0) / 3));
+    const absorbed = Math.min(t.shield, real, cap);
     t.shield -= absorbed; real -= absorbed;
   }
   t.hp = Math.max(0, t.hp - real);
@@ -335,7 +337,8 @@ function counterCap(){ return SK.counterBaseCap + Math.max(0, p2.shield || 0); }
 function applyCounterDamage(t, amount, dir){
   if (t.shield > 0){
     const factor = Math.min(1, t.shield / 1000);
-    const toShield = Math.min(t.shield, amount * factor);
+    const cap = Math.max(1, Math.round((t.shieldMax || 0) / 3));
+    const toShield = Math.min(t.shield, amount * factor, cap);
     t.shield -= toShield;
     amount -= toShield;
   }
@@ -579,7 +582,7 @@ let bgmEl = null, bgmReady = false;
 // 外部 BGM：默认读 bgm.mp3，也可以用 ?bgm=你的地址 指定
 function tryExternalBgm(){
   const q = new URLSearchParams(location.search).get('bgm');
-  const cands = q ? [q] : ['bgm.mp3', 'bgm.m4a', 'bgm.ogg'];
+  const cands = q ? [q] : (window.__BGM ? [window.__BGM] : ['bgm.mp3', 'bgm.m4a', 'bgm.ogg']);
   let idx = 0;
   const a = new Audio();
   a.loop = true; a.volume = 0.55; a.preload = 'auto';
@@ -875,6 +878,7 @@ function updateBullets(dt){
           const healed = Math.min(room, want);
           p2.hp += healed;
           p2.shield += (want - healed);
+          p2.shieldMax = Math.max(p2.shieldMax || 0, p2.shield);
         }
       }
       hitstop = .07; shake = 10; flash = .16;
@@ -1045,6 +1049,7 @@ function checkHit(a, b, windows, dmg, rangeOk){
     const want = dmg * SK.frenzyHeal, room = p2.maxHp - p2.hp;
     const healed = Math.min(room, want);
     p2.hp += healed; p2.shield += (want - healed);
+    p2.shieldMax = Math.max(p2.shieldMax || 0, p2.shield);
   }
   hitstop = (a.state === 'swing2') ? .14 : .09;
   shake = (a.state === 'swing2') ? 20 : 14;
@@ -1634,7 +1639,7 @@ function resetFighter(f){
   f.y = 0; f.vy = 0; f.jumps = 0; f.stun = 0; f.invuln = 0; f.hurtT = 0;
   f.hitDone = false; f.bulletDone = false; f.reloading = 0; f.closeT = 0;
   f.slideT = 0; f.slideVx = 0; f.knockT = 0; f.leapT = 0; f.leapShot = false;
-  f.shield = 0; f.dmgMult = 1;
+  f.shield = 0; f.shieldMax = 0; f.dmgMult = 1;
   // 技能相关
   f.frenzy = false; f.frenzyCd = 0; f.frenzyLeft = 0; f.frenzyT = 0; f.frenzyGlow = false;
   f.frenzyCount = 0; f.frenzyStacks = 0; f.chargeDmg = 0; f.chargeAt = 0; f.chargeWarn = 0;
@@ -1995,6 +2000,7 @@ preload(()=>{
   window.__started = true;
   const lb = document.getElementById('loadbar'); if (lb) lb.style.display = 'none';
   if (window.__EMBED) document.title = '单机版 已启动';
+  if (window.__ATLAS_SRC) document.title = '单文件版 已启动 · 图集' + Object.keys(imgCache).filter(k => k.indexOf('A:') === 0 && imgCache[k].naturalWidth > 0).length;
   if (SELFTEST){
     try { audioInit(); } catch (e) {}
     tryJump(p1);
@@ -2014,6 +2020,22 @@ preload(()=>{
       window.__leapTest.maxDx = Math.max(window.__leapTest.maxDx, Math.abs(p2.x - p1.x));
       document.title = `LEAPTEST leaps=${window.__leapTest.leaps} moved=${(p2.leapMoved||0).toFixed(0)} maxY=${(window.__maxLeapY||0).toFixed(0)} shots=${window.__shotCount||0} p2=${p2.state}`;
     }, 200);
+  }
+  if (new URLSearchParams(location.search).get('test') === 'shield'){
+    setTimeout(()=>{
+      const out = [];
+      try {
+        p2.hp = p2.maxHp; p2.shield = 900; p2.shieldMax = 900; p2.invuln = 0;
+        const s0 = p2.shield;
+        applyDamage(p2, 1000, 1);                    // 单次超过上限
+        out.push('盾900挨1000 → 盾剩' + Math.round(p2.shield) + '（应剩600）血' + Math.round(p2.hp));
+        p2.shield = 1500; p2.shieldMax = 1500;       // 刷新历史最高
+        const s1 = p2.shield;
+        applyDamage(p2, 1000, 1);
+        out.push('盾1500挨1000 → 盾剩' + Math.round(p2.shield) + '（应剩1000）');
+      } catch(e){ out.push('ERR ' + e.message); }
+      document.title = 'SHIELD ' + out.join(' | ');
+    }, 700);
   }
   if (new URLSearchParams(location.search).get('test') === 'air'){
     setTimeout(()=>{
