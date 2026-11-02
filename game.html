@@ -124,6 +124,8 @@
     </div>
     <div class="pad right">
       <button data-k="l">挡</button>
+      <button data-k="leap" class="gunonly">跳</button>
+      <button data-k="frenzy" class="gunonly">狂</button>
       <button data-k="heavy">重</button>
       <button data-k="j">打</button>
     </div>
@@ -476,6 +478,7 @@ const DODGE_DIST = 460, DODGE_TIME = 0.55, DODGE_INVULN = 0.45;
 let stepT = 0, dodgeCd = 0, stepCount = 0, combo = 0, comboT = 0, blockCd = 0;
 let closeT = 0;
 const keys = {};
+const keyReq = { q: false, e: false };
 const AUTO = (new URLSearchParams(location.search).get('auto') || '').split(',').filter(Boolean);
 const SELFTEST = new URLSearchParams(location.search).get('selftest') === '1';
 const PROBE = new URLSearchParams(location.search).get('probe') === '1';
@@ -487,6 +490,8 @@ addEventListener('keydown', e=>{
   if (e.key === 'F2'){ freeAim = !freeAim; return; }
   if (e.key === 'F3'){ showCheck = !showCheck; return; }
   const k = e.key.toLowerCase();
+  if (k === 'q' && !keys['q']) keyReq.q = true;
+  if (k === 'e' && !keys['e']) keyReq.e = true;
   if (k === 'l' && !keys['l']) parryReq = true;
   if ((k === 'w' || k === ' ') && !keys[k]) jumpReq = true;
   keys[k] = true; e.preventDefault();
@@ -499,6 +504,7 @@ const isTouch = ('ontouchstart' in window) || Math.min(innerWidth, innerHeight) 
   const pad = document.getElementById('touch');
   if (!pad) return;
   if (isTouch) pad.classList.add('on');
+  if (playerSide !== 'gunner') pad.querySelectorAll('.gunonly').forEach(b=> b.style.display = 'none');
   const hold = (btn, on, off)=>{
     const down = e=>{ e.preventDefault(); audioInit(); on(); };
     const up   = e=>{ e.preventDefault(); off && off(); };
@@ -585,6 +591,10 @@ const isTouch = ('ontouchstart' in window) || Math.min(innerWidth, innerHeight) 
       hold(btn, ()=>{ if (['idle','walk','run'].includes(p1.state)) p1.set('dodge',{force:true}); }, null);
     } else if (k === 'j'){
       hold(btn, ()=>{ if (['idle','walk','run'].includes(p1.state)) p1.set('swing',{force:true}); }, null);
+    } else if (k === 'leap'){
+      hold(btn, ()=>{ keyReq.q = true; }, null);
+    } else if (k === 'frenzy'){
+      hold(btn, ()=>{ keyReq.e = true; }, null);
     } else if (k === 'heavy'){
       hold(btn, ()=>{
         if (!['idle','walk','run'].includes(p1.state)) return;
@@ -1523,6 +1533,42 @@ function gunnerInput(dt){
     fireCd = 1.2;
     return;
   }
+  // K：滑铲（带位移 + 无敌 + 低受击框）
+  if (keys['k'] && g.slideT <= 0 && g.state !== 'dodge'){
+    g.set('dodge', {force:true});
+    g.slideT = DODGE_TIME;
+    g.slideVx = g.face * (2 * DODGE_DIST / DODGE_TIME);
+    g.invuln = DODGE_INVULN;
+    sfx('land');
+    return;
+  }
+  // L：格挡（持续整个动作）
+  if (parryReq && blockCd <= 0){
+    parryReq = false; blockCd = 1.4;
+    g.set('block', {force:true});
+    g.blockT = SPRITES[g.act].n / FPS;        // 有效时间 = 动作长度
+    return;
+  }
+  // Q：后跳拉开
+  if (keyReq.q && g.leapT <= 0 && g.state !== 'leap'){
+    keyReq.q = false;
+    g.leapT = 0.9; g.leapDir = -g.face; g.leapX0 = g.x; g.leapShot = false;
+    g.set('leap', {force:true});
+    sfx('jump');
+    return;
+  }
+  // E：开启狂化（无视血量，只看冷却）
+  if (keyReq.e && g.frenzyCd <= 0 && !g.frenzy){
+    keyReq.e = false;
+    g.frenzy = true; g.dmgMult = 1; g.chargeDmg = 0;
+    g.frenzyLeft = SK.frenzyDur; g.frenzyT = 1.4; g.frenzyGlow = true;
+    g.chargeAt = 1 + Math.random() * 3; g.chargeTotal = g.chargeAt;
+    g.frenzyCount = (g.frenzyCount || 0) + 1;
+    showSkill('枪手 · 狂化！', '蓄能弹准备中', '#ff2d2d');
+    flash = Math.max(flash, .5); shake = Math.max(shake, 18);
+    return;
+  }
+  keyReq.e = false;
   if (keys['k'] && g.slideT <= 0){ g.set('dodge', {force:true}); }
   if (parryReq){ parryReq = false; if (blockCd <= 0){ g.set('block', {force:true}); g.blockT = 0.5; blockCd = 1.2; } }
 }
@@ -1579,11 +1625,13 @@ function step(dt){
   if (dodgeCd > 0) dodgeCd -= dt;
   if (p1.counterCd > 0) p1.counterCd -= dt;
   // 滑铲：位移 + 无敌
-  if (p1.slideT > 0){
-    const k = p1.slideT / DODGE_TIME;                   // 1 → 0 线性减速
-    p1.x += p1.slideVx * k * dt;
-    p1.slideT -= dt;
-    if (p1.slideT <= 0){ p1.slideT = 0; p1.slideVx = 0; }
+  for (const f of [p1, p2]){
+    if (f.slideT > 0){
+      const k = f.slideT / DODGE_TIME;                  // 1 → 0 线性减速
+      f.x += f.slideVx * k * dt;
+      f.slideT -= dt;
+      if (f.slideT <= 0){ f.slideT = 0; f.slideVx = 0; }
+    }
   }
   if (blockCd > 0) blockCd -= dt;
   if (p2.blockT > 0) p2.blockT -= dt;
@@ -2292,6 +2340,27 @@ preload(()=>{
       window.__leapTest.maxDx = Math.max(window.__leapTest.maxDx, Math.abs(p2.x - p1.x));
       document.title = `LEAPTEST leaps=${window.__leapTest.leaps} moved=${(p2.leapMoved||0).toFixed(0)} maxY=${(window.__maxLeapY||0).toFixed(0)} shots=${window.__shotCount||0} p2=${p2.state}`;
     }, 200);
+  }
+  if (new URLSearchParams(location.search).get('test') === 'gunskills'){
+    setTimeout(()=>{
+      const out = [];
+      try {
+        p2.x = p1.x + 400; p2.state = 'idle'; p2.slideT = 0; p2.leapT = 0; p2.frenzyCd = 0; p2.reloading = 0;
+        const x0 = p2.x;
+        keys['k'] = true; for (let i = 0; i < 30; i++) step(0.02); keys['k'] = false;
+        out.push('滑铲位移=' + Math.round(Math.abs(p2.x - x0)) + ' 状态=' + p2.state);
+        p2.state = 'idle'; p2.slideT = 0; p2.stun = 0; p2.reloading = 0; fireCd = 0; parryReq = true; blockCd = 0;
+        for (let i = 0; i < 3; i++) step(0.02);
+        out.push('格挡状态=' + p2.state + ' 有效时长=' + (p2.blockT || 0).toFixed(2) + 's');
+        p2.state = 'idle'; p2.stun = 0; p2.leapT = 0; const x1 = p2.x; keyReq.q = true;
+        for (let i = 0; i < 10; i++) step(0.02);
+        out.push('后跳=' + Math.round(Math.abs(p2.x - x1)) + 'px');
+        keyReq.e = true; p2.frenzy = false; p2.frenzyCd = 0;
+        for (let i = 0; i < 3; i++) step(0.02);
+        out.push('狂化=' + (p2.frenzy ? 1 : 0) + ' 蓄能=' + (p2.chargeAt || 0).toFixed(1) + 's');
+      } catch(e){ out.push('ERR ' + e.message); }
+      document.title = 'GUNSKILLS ' + out.join(' | ');
+    }, 900);
   }
   if (new URLSearchParams(location.search).get('test') === 'gunrole'){
     setTimeout(()=>{
