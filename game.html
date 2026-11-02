@@ -347,7 +347,7 @@ class Fighter{
     this.reviving = 0; this.immortalCd = 0; this.reviveFull = false;
     this.frenzyStacks = 0; this.frenzyCount = 0; this.pierceShot = false; this.pierceDmg = 0; this.chargeWarn = 0;
     this.knockT = 0; this.knockDir = 1; this.knockX0 = 0; this.knockDist = 0;
-    this.shield = 0; this.shieldMax = 0;
+    this.shield = 0; this.shieldMax = 0; this.shieldGuardUsable = true;
     this.forceCd = 0; this.pullT = 0; this.lastStand = false; this.lastStandT = 0;
     this.storedDmg = 0; this.takenTotal = 0; this.counterCd = 0;
   }
@@ -388,9 +388,15 @@ function applyDamage(t, dmg, dir){
     }
   }
   if (t === p2 && p2.frenzy) real *= 1;            // 狂化不加受伤
-  if (t.shield > 0 && real > 0){                    // 护盾先抗（不设单次上限，能吃多少吃多少）
-    const absorbed = Math.min(t.shield, real);
+  if (t.shield > 0 && real > 0){                    // 护盾先抗
+    let absorbed = Math.min(t.shield, real);
+    // 护盾保底：盾 > 2000 时，这一击最多打到剩 1000（清零前只触发一次）
+    if (t.shieldGuardUsable && t.shield > 2000 && absorbed > t.shield - 1000){
+      absorbed = t.shield - 1000;
+      t.shieldGuardUsable = false;                  // 用掉了，等盾清零再恢复
+    }
     t.shield -= absorbed; real -= absorbed;
+    if (t.shield <= 0) t.shieldGuardUsable = true;   // 盾清零 → 保底重新可用
   }
   t.hp = Math.max(0, t.hp - real);
   if (real > 0) floatText(t.x, GROUND - BODY_H * 0.75 - (t.y||0), '-' + Math.round(real), '#2b2926');
@@ -408,8 +414,13 @@ function counterCap(){ return SK.counterBaseCap + Math.max(0, p2.shield || 0); }
 function applyCounterDamage(t, amount, dir){
   if (t.shield > 0){
     const factor = Math.min(1, t.shield / 1000);
-    const toShield = Math.min(t.shield, amount * factor);
+    let toShield = Math.min(t.shield, amount * factor);
+    if (t.shieldGuardUsable && t.shield > 2000 && toShield > t.shield - 1000){
+      toShield = t.shield - 1000;
+      t.shieldGuardUsable = false;
+    }
     t.shield -= toShield;
+    if (t.shield <= 0) t.shieldGuardUsable = true;
     amount -= toShield;
   }
   if (amount > 0) t.hurt(amount, dir);
@@ -479,7 +490,7 @@ const SK = {
   counterReady: 5.0,        // 还击冷却
   counterBaseCap: 2000,     // 反击池基础上限（+ 枪手当前护盾）
   frenzyDur: 12,            // 狂化持续时间
-  frenzyCd: 30,             // 狂化冷却
+  frenzyCd: 15,             // 狂化冷却
   reviveTime: 5,            // 不朽：复活读条 5 秒
   immortalCd: 45,           // 不朽冷却
 };
@@ -1033,7 +1044,7 @@ function updateBullets(dt){
         const dealt = base * mult;
         tgt.hurt(dealt, b.dir);
         if (b.owner === 'gun' && p2.frenzy) p2.chargeDmg += dealt;   // 只有狂化期间才蓄能
-        if (b.owner === 'gun' && (p2.frenzy || b.pierce)){           // 狂化弹 + 蓄能穿透弹都吸血，溢出成盾
+        if (b.owner === 'gun' && (p2.frenzy || b.pierce || p2.healGlow > 0)){   // 狂化/蓄能/余韵都吸血
           const want = base * mult * SK.frenzyHeal;
           const room = p2.maxHp - p2.hp;
           const healed = Math.min(room, want);
@@ -1543,6 +1554,7 @@ function fireCharge(g = p2){
   g.frenzy = false; g.frenzyLeft = 0; g.frenzyT = 0;
   g.dmgMult = 1; g.frenzyGlow = false;
   g.frenzyCd = SK.frenzyCd;
+  g.healGlow = 1.2;                 // 余韵：这 1.2 秒内的命中继续回血
 }
 
 function gunnerInput(dt){
@@ -1673,10 +1685,10 @@ function aiBrawler(dt){
     return;
   }
   // 中距离：滑铲贴脸（460px）
-  if (d > 300 && d < 560 && f.slideT <= 0 && slideAiCd <= 0){
+  if (d > 330 && d < 520 && f.slideT <= 0 && slideAiCd <= 0){
     f.set('slide', {force:true});
     f.slideT = DODGE_TIME; f.slideVx = f.face * (2 * DODGE_DIST / DODGE_TIME);
-    f.invuln = DODGE_INVULN; slideAiCd = 2.6;
+    f.invuln = DODGE_INVULN; slideAiCd = 6.0;
     sfx('land');
     return;
   }
@@ -1754,6 +1766,7 @@ function step(dt){
   }
   // 蓄能弹第二发
   if (p2.pierceNext > 0) window.__pnTicks = (window.__pnTicks || 0) + 1;
+  if (p2.healGlow > 0) p2.healGlow -= dt;
   if (p2.pierceNext > 0){
     p2.pierceNext -= dt;
     if (p2.pierceNext <= 0){ p2.pierceNext = 0; spawnBullet(p2); }
@@ -2059,7 +2072,7 @@ function resetFighter(f){
   f.y = 0; f.vy = 0; f.jumps = 0; f.stun = 0; f.invuln = 0; f.hurtT = 0;
   f.hitDone = false; f.bulletDone = false; f.reloading = 0; f.closeT = 0;
   f.slideT = 0; f.slideVx = 0; f.knockT = 0; f.leapT = 0; f.leapShot = false;
-  f.shield = 0; f.shieldMax = 0; f.dmgMult = 1;
+  f.shield = 0; f.shieldMax = 0; f.shieldGuardUsable = true; f.dmgMult = 1;
   // 技能相关
   f.frenzy = false; f.frenzyCd = 0; f.frenzyLeft = 0; f.frenzyT = 0; f.frenzyGlow = false;
   f.frenzyCount = 0; f.frenzyStacks = 0; f.chargeDmg = 0; f.chargeAt = 0; f.chargeWarn = 0;
@@ -2601,6 +2614,19 @@ preload(()=>{
         resetRound(); over = false;
         p1.takenTotal = 0; for (let i = 0; i < 40; i++){ applyDamage(p1, 300, 1); p1.stun = 0; }
         ok('cap', p1.takenTotal <= counterCap(), 'pool' + Math.round(p1.takenTotal));
+
+        // 护盾保底：盾 >2000 时单次最多打到剩 1000，清零后才恢复
+        { resetRound(); p2.hp = p2.maxHp; p2.shield = 3000; p2.shieldMax = 3000; p2.invuln = 0;
+          p2.shieldGuardUsable = true;
+          applyDamage(p2, 5000, 1);
+          const first = Math.round(p2.shield);
+          applyDamage(p2, 5000, 1);
+          const second = Math.round(p2.shield);
+          p2.shield = 400; applyDamage(p2, 9999, 1);   // 自然清零 → 保底恢复
+          p2.hp = p2.maxHp; p2.shield = 3000;
+          applyDamage(p2, 5000, 1);
+          ok('shieldGuard', first === 1000 && second === 0 && Math.round(p2.shield) === 1000,
+             `1st${first},2nd${second},reset${Math.round(p2.shield)}`); }
 
         // 护盾：不再有单次上限
         { resetRound(); p2.hp = p2.maxHp; p2.shield = 900; p2.shieldMax = 900; p2.invuln = 0;
