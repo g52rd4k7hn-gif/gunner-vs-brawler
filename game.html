@@ -107,9 +107,9 @@
     <h1>枪手 vs 打手</h1>
     <p>火柴人格斗 · 三局两胜 · 选择难度开始</p>
     <div class="opts">
-      <button data-d="normal"><b>普通</b><span>无技能 · 最初数值</span></button>
+      <button data-d="normal"><b>普通</b><span>无技能 · 最初数值（血量 500）</span></button>
       <button data-d="divine"><b>一丝神力</b><span>完整技能 · 当前数值</span></button>
-      <button data-d="insane"><b>不可思议</b><span>狂化无冷却 · 每枪蓄能 · 2.5s 装弹<br>击飞 ×15 · 4 倍速追踪弹 · 不可反弹</span></button>
+      <button data-d="insane"><b>不可思议</b><span>狂化无冷却 · 每枪蓄能 · 2.5s 装弹<br>击飞 ×15 · 4 倍速不可反弹</span></button>
     </div>
   </div>
   <div id="msg"></div>
@@ -196,7 +196,7 @@ let MAX_HP = 4000;            // 双方血量（随难度变化）
 const DIFFS = {
   normal: {                       // 普通：去掉技能，数值回到最初版本
     label: '普通', desc: '无技能 · 最初数值',
-    hp: 2000, swing: 8, heavy: 14, ranged: 9, melee: 7,
+    hp: 500, swing: 8, heavy: 14, ranged: 9, melee: 7,
     skills: false, frenzyCd: 30, reload: 1.5, knockbackX: 1,
     alwaysCharged: false, chargeSpeedX: 3, homing: 0, reflectable: true,
   },
@@ -207,10 +207,10 @@ const DIFFS = {
     alwaysCharged: false, chargeSpeedX: 3, homing: 0, reflectable: true,
   },
   insane: {                       // 不可思议
-    label: '不可思议', desc: '狂化无冷却 · 每枪蓄能 · 2.5 秒装弹 · 击飞 ×15 · 4 倍速追踪弹',
+    label: '不可思议', desc: '狂化无冷却 · 每枪蓄能 · 2.5 秒装弹 · 击飞 ×15 · 4 倍速不可反弹',
     hp: 4000, swing: 100, heavy: 200, ranged: 150, melee: 75,
     skills: true, frenzyCd: 0, reload: 2.5, knockbackX: 15,
-    alwaysCharged: true, chargeSpeedX: 4, homing: 1.0, reflectable: false,
+    alwaysCharged: true, chargeSpeedX: 4, homing: 0, reflectable: false,
   },
 };
 let CFG = DIFFS.divine;
