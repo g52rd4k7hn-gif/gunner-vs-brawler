@@ -421,7 +421,7 @@ function applyCounterDamage(t, amount, dir){
 function onDown(t){
   if (CFG.brawlerSkills && t === p1 && !t.lastStand){        // 打手·最后的反击
     t.lastStand = true; t.lastStandT = 30; t.hp = Math.max(1, t.hp);
-    t.downed = true; t.set('ko', {force:true});              // 倒地，不能再行动
+    t.downed = false;                                       // 不倒：继续行动，不是倒地
     t.takenTotal = Math.max(t.takenTotal, 2000);
     showSkill('最后的反击！', '30 秒不倒 · 反击池保底 2000', '#ff7a1a');
     flash = Math.max(flash, .5); shake = Math.max(shake, 26);
@@ -963,8 +963,8 @@ function muzzlePoint(f){
   if (ANG[f.state] !== undefined){
     const [px, py] = gunPivot(f);
     const a = ANG[f.state] * Math.PI / 180;
-    const L = 0.65 * 640 * f.scale;
-    return [px + Math.cos(a) * 0.70 * L * (f.face < 0 ? -1 : 1), py + Math.sin(a) * 0.70 * L];
+    const L = 0.90 * 640 * f.scale;                    // 枪管长度（对齐预渲）
+    return [px + Math.cos(a) * L * (f.face < 0 ? -1 : 1), py + Math.sin(a) * L];
   }
   if (['fire','fireUp','aim','aimUp'].includes(f.state)){
     const [px, py, ang] = gunAim(f);
@@ -1613,7 +1613,7 @@ function aiBrawler(dt){
     f.pullSpeed = insaneForce ? 1200 : 500;          // 吸附速度
     f.pullDur   = insaneForce ? 99 : (playerSide === 'gunner' ? 8 : 7);   // 吸附时长（不可=吸到为止）
     f.forceT = f.forceWarn;
-    f.forceCd = 10;
+    f.forceCd = f.lastStand ? 5 : 10;      // 不倒期间 5 秒一次
     f.set('pull', {force:true});
     showSkill('打手 · 全力（预警）', CFG.brawlerSkills ? '即将吸附！' : '5 秒后吸附', '#a050ff');
     sfx('charge');
@@ -2618,7 +2618,7 @@ preload(()=>{
           onDown(p1);                                  // 直接触发最后的反击
           const entered = p1.lastStand && p1.hp >= 1;
           for (let i = 0; i < 5; i++) step(0.02);
-          ok('lastStand', entered && !over && p1.lastStandT > 0 && p1.downed,
+          ok('lastStand', entered && !over && p1.lastStandT > 0 && !p1.downed,
              `ls${entered?1:0},over${over?1:0},t${(p1.lastStandT||0).toFixed(0)}`);
           p1.lastStand = false; p1.lastStandT = 0; p1.downed = false;
         }
@@ -2643,8 +2643,10 @@ preload(()=>{
         // 10 枪手模式开火
         if (playerSide === 'gunner'){
           resetRound(); over = false; fireCd = 0; p2.reloading = 0; bullets.length = 0;
-          keys['j'] = true; sim(6); keys['j'] = false;
-          ok('gunfire', bullets.length > 0, 'n' + bullets.length);
+          p2.state = 'idle'; p2.leapT = 0; p2.slideT = 0; p2.stun = 0;
+          const shots0 = window.__shotCount || 0;
+          keys['j'] = true; sim(25); keys['j'] = false;
+          ok('gunfire', (window.__shotCount || 0) > shots0, 'shots' + ((window.__shotCount||0) - shots0) + ',st' + p2.state);
         }
       } catch(e){ R.push('EXC ' + e.message); }
       const line = 'FAST ' + (playerSide) + ' | ' + R.join(' | ');
