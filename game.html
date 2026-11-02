@@ -166,9 +166,9 @@ const DMG = {
   brawlerSwing: 100,   // 打手横扫
   brawlerHeavy: 200,   // 打手重击（固定 200）
   chargeBonus: 8,      // 蓄满额外
-  gunRanged: 100,      // 枪手普通攻击（固定 100）
+  gunRanged: 150,      // 枪手远程攻击（固定 150）
   gunChargeBase: 9,    // 蓄能弹基础伤害（9 × 3^n）
-  gunMelee: 7,         // 枪手·近战枪托
+  gunMelee: 75,        // 枪手·近战枪托
   reflect: 14,         // 反弹子弹
 };
 const BODY_H = 236;            // 屏幕上人物实际高度
@@ -848,7 +848,7 @@ function spawnBullet(f){
     else { f.pierceShot = false; f.pierceNext = 0; }
   }                    // 速度 ×3
   sfx('shot');
-  bullets.push({x: mx, y: my, vx: dx/L*sp, vy: dy/L*sp, pierce, dmg: pierce ? f.pierceDmg : 0,
+  bullets.push({x: mx, y: my, vx: dx/L*sp, vy: dy/L*sp, pierce, dmg: pierce ? f.pierceDmg : DMG.gunRanged,
                 dir: Math.sign(dx) || f.face, alive: true, t: 0, owner: 'gun'});
   sparks.push({x: mx + f.face*6, y: my, t: -0.05});
 }
@@ -864,7 +864,7 @@ function updateBullets(dt){
     const hitY = b.y > hb.y - 10 && b.y < hb.y + hb.h + 10;
     if (hitX && hitY && tgt.invuln <= 0 && tgt.hp > 0){
       {
-        const base = b.owner === 'player' ? DMG.reflect : (b.pierce ? b.dmg : DMG.gunRanged);
+        const base = b.dmg || DMG.gunRanged;   // 反弹回来的子弹沿用原本的伤害
         const mult = (b.owner === 'gun' && p2.frenzy) ? p2.dmgMult : 1;
         const dealt = base * mult;
         tgt.hurt(dealt, b.dir);
@@ -1962,6 +1962,27 @@ preload(()=>{
       window.__leapTest.maxDx = Math.max(window.__leapTest.maxDx, Math.abs(p2.x - p1.x));
       document.title = `LEAPTEST leaps=${window.__leapTest.leaps} moved=${(p2.leapMoved||0).toFixed(0)} maxY=${(window.__maxLeapY||0).toFixed(0)} shots=${window.__shotCount||0} p2=${p2.state}`;
     }, 200);
+  }
+  if (new URLSearchParams(location.search).get('test') === 'dmg'){
+    setTimeout(()=>{
+      const out = [];
+      try {
+        bullets.length = 0; p2.x = p1.x + 500; p2.face = -1;
+        spawnBullet(p2);
+        const b = bullets[0];
+        out.push('普通弹伤害=' + b.dmg);
+        tryDeflectTest();
+      } catch(e){ out.push('ERR ' + e.message); }
+      function tryDeflectTest(){
+        p1.state = 'parry'; p1.t = 0.3; b0 = bullets[0];
+        const bb = {x: p1.x + 60, y: b0.y, dir: -1, speed: 0, alive: true, t: 0, owner: 'gun', dmg: b0.dmg, pierce: false};
+        bullets.length = 0; bullets.push(bb);
+        tryDeflect();
+        out.push('反弹后伤害=' + (bb.owner === 'player' ? bb.dmg : '未反弹') + '/归属' + bb.owner);
+        out.push('近战=' + DMG.gunMelee + ' 远程=' + DMG.gunRanged);
+        document.title = 'DMG ' + out.join(' | ');
+      }
+    }, 600);
   }
   if (new URLSearchParams(location.search).get('test') === 'prop'){
     setTimeout(()=>{
