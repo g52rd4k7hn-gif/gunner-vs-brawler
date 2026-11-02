@@ -380,10 +380,10 @@ function applyDamage(t, dmg, dir){
       p1.takenTotal = Math.min(counterCap(), p1.takenTotal + dmg);
       log = '偶数 · 免疫 + 回血 + 存池';
       floatText(t.x, GROUND - BODY_H - 20, `免疫 +${Math.round(heal)} · 存 ${Math.round(dmg)}`, '#2fa85a');
-    } else {                                       // 奇数：吃一半伤害，双倍原始伤害存池
-      real = dmg * 0.5;
+    } else {                                       // 奇数：正常吃满伤害，双倍原始伤害存池
+      real = dmg;
       p1.takenTotal = Math.min(counterCap(), p1.takenTotal + dmg * 2);
-      log = '奇数 · 半伤 + 双倍存池';
+      log = '奇数 · 满伤 + 双倍存池';
       floatText(t.x, GROUND - BODY_H - 20, `奇数 · 存 ${Math.round(dmg * 2)}`, '#c0392b');
     }
   }
