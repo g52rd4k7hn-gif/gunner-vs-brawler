@@ -14,8 +14,9 @@
   #hud .side{flex:1;display:flex;flex-direction:column;gap:4px}
   #hud .cools{display:flex;flex-direction:column;gap:3px}
   #hud .cool{display:flex;flex-direction:column;gap:2px;font-size:9.5px;color:#ffffffd0;letter-spacing:.02em}
-  #hud .cool .lab{opacity:.9;line-height:1.2}
-  #hud .side.right .cool .lab{text-align:right}
+  #hud .cool .lab{line-height:1.35;color:#fff;background:rgba(0,0,0,.5);display:inline-block;
+    padding:1px 6px;border-radius:4px;font-size:9.5px;text-shadow:0 1px 2px #000a}
+  #hud .side.right .cool .lab{text-align:right;align-self:flex-end}
   #hud .cool .trk{width:100%;height:9px;border-radius:5px;background:#ffffff26;overflow:hidden;
     box-shadow:inset 0 0 0 1px #ffffff1a}
   #hud .cool .trk i{display:block;height:100%;width:0%;background:#8ee0a0;transition:width .08s linear}
@@ -2190,8 +2191,13 @@ preload(()=>{
       const lab2 = row && row.querySelector('.lab').textContent;
       p2.frenzy = true; p2.chargeAt = 0; updateCools();
       const lab3 = row && row.querySelector('.lab').textContent;
+      const cs = lab ? getComputedStyle(lab) : null;
+      const rect = lab ? lab.getBoundingClientRect() : null;
       document.title = 'BAR 高=' + (trk ? getComputedStyle(trk).height : '?')
-        + ' | 蓄能中:' + lab2 + ' | 狂化待发:' + lab3;
+        + ' | 文字:' + (lab ? lab.textContent : '无')
+        + ' 色:' + (cs ? cs.color : '?') + ' 底:' + (cs ? cs.backgroundColor : '?')
+        + ' 尺寸:' + (rect ? Math.round(rect.width) + 'x' + Math.round(rect.height) : '?')
+        + ' 可见:' + (rect ? (rect.height > 0 && rect.width > 0) : '?');
     }, 900);
   }
   if (new URLSearchParams(location.search).get('test') === 'diff'){
