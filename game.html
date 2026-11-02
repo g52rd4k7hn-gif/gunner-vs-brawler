@@ -331,9 +331,9 @@ for (let i = 0; i < 26; i++){
 }
 // ── 小物件：被挥击打飞 ──
 const PROPS = [];
-for (let i = 0; i < 40; i++){
-  PROPS.push({x: 600 + i * (WORLD - 1200) / 40, y: 0, vx: 0, vy: 0, rot: Math.random()*6,
-              spin: 0, alive: true, kind: i % 3, sz: 11 + (i % 3) * 5});
+for (let i = 0; i < 90; i++){
+  PROPS.push({x: 500 + i * (WORLD - 1000) / 90, y: 0, vx: 0, vy: 0, rot: Math.random()*6,
+              spin: 0, alive: true, kind: i % 3, sz: 10 + (i % 3) * 5, hitCd: 0});
 }
 
 class Fighter{
@@ -1136,11 +1136,11 @@ function updateProps(dt){
           showSkill('还击（物件引爆）！', '+' + extra, '#3c8ce0');
           flash = Math.max(flash, .25); shake = Math.max(shake, 16);
         }
-        pr.alive = false;
+        pr.projectile = false; pr.vx = 0; pr.vy = 0; pr.hitCd = 0.8;
         hitstop = Math.max(hitstop, .1); shake = Math.max(shake, 16); flash = Math.max(flash, .22);
         sparks.push({x: p2.x, y: GROUND - CHEST, t: 0, big: true, rgba: 'rgba(255,180,60,'});
       }
-      if (pr.life <= 0 || pr.x < 0 || pr.x > WORLD || pr.y < -100){ pr.alive = false; }
+      if (pr.x < 0 || pr.x > WORLD || pr.y < -200){ pr.x = Math.max(40, Math.min(WORLD - 40, pr.x)); pr.projectile = false; pr.vx = 0; pr.vy = 0; }
       return;
     }
     if (pr.vx || pr.vy || pr.y > 0){
@@ -1151,9 +1151,10 @@ function updateProps(dt){
       if (pr.y <= 0){ pr.y = 0; pr.vy = -pr.vy * 0.35; pr.vx *= 0.7; pr.spin *= 0.6;
         if (Math.abs(pr.vy) < 40){ pr.vy = 0; pr.vx *= 0.3; }
       }
-      pr.life -= dt;
       if (pr.hitCd > 0) pr.hitCd -= dt;
-      if (pr.life <= 0 || pr.x < 0 || pr.x > WORLD){ pr.alive = false; }
+      // 物件永不消失：滚出边界就停住、落地就留在原地
+      if (pr.x < 0 || pr.x > WORLD){ pr.x = Math.max(40, Math.min(WORLD - 40, pr.x)); pr.vx = 0; pr.vy = 0; pr.y = 0; }
+      if (pr.y <= 0 && Math.abs(pr.vx) < 6 && Math.abs(pr.vy) < 6){ pr.vx = 0; pr.vy = 0; pr.y = 0; }
     }
   }
 }
@@ -2783,6 +2784,26 @@ preload(()=>{
       } catch(e){ out.push('ERR ' + e.message); }
       document.title = 'GUNROLE ' + out.join(' | ');
     }, 900);
+  }
+  if (new URLSearchParams(location.search).get('test') === 'props'){
+    setTimeout(()=>{
+      const out = [];
+      out.push('物件数=' + PROPS.length);
+      try {
+        const pr = PROPS[10];
+        pr.alive = true; pr.x = 8300; pr.y = 0; pr.vx = 0; pr.vy = 0;
+        p1.x = 8200; p1.face = 1; p1.state = 'swing2'; p1.t = 0.35;
+        hitProps(p1);
+        const launched = pr.projectile === true;
+        for (let i = 0; i < 300; i++) updateProps(0.02);
+        out.push('被打飞=' + (launched ? 1 : 0) + ' 300帧后仍存在=' + (pr.alive ? 1 : 0) + ' x=' + Math.round(pr.x));
+        const before = PROPS.filter(q => q.alive).length;
+        for (let i = 0; i < 600; i++) updateProps(0.02);
+        const after = PROPS.filter(q => q.alive).length;
+        out.push('再跑12秒: ' + before + '→' + after);
+      } catch(e){ out.push('ERR ' + e.message); }
+      document.title = 'PROPS ' + out.join(' | ');
+    }, 800);
   }
   if (new URLSearchParams(location.search).get('test') === 'ai'){
     setTimeout(()=>{
