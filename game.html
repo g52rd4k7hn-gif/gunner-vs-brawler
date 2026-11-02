@@ -181,6 +181,8 @@ const SPRITES = {
   "gun_block": {n: 29, loop: false},
   "gun_butt": {n: 19, loop: false},
   "gun_hop": {n: 19, loop: false},
+  "gun_walk": {n: 24, loop: true},
+  "gun_jump": {n: 22, loop: false},
   "gun_run": {n: 17, loop: true},
   "gun_leap_back": {n: 22, loop: false},
   "gun_kneel_reload": {n: 38, loop: false},
@@ -445,7 +447,7 @@ function boom(x, y, r, rgba){
 const BRAWLER = {idle:'bat_idle', walk:'bat_walk', run:'bat_run', jump:'bat_jump',
   swing:'bat_swing_h', swing2:'bat_swing_v', dodge:'bat_slide', parry:'bat_parry',
   hit:'bat_stagger', ko:'bat_kneel', leap:'bat_leap_back', pull:'bat_pull'};
-const GUNNER = {idle:'gun_idle', walk:'gun_idle', run:'gun_run', jump:'gun_idle', leap:'gun_leap_back',
+const GUNNER = {idle:'gun_idle', walk:'gun_walk', run:'gun_run', jump:'gun_jump', leap:'gun_leap_back',
   aim:'gun_aim_b', fire:'gun_fire_b', aimUp:'gun_aim_up_b', fireUp:'gun_fire_up_b',
   aimM55:'gun_aim_am55', fireM55:'gun_fire_am55',
   aimM25:'gun_aim_am25', fireM25:'gun_fire_am25',
