@@ -419,6 +419,13 @@ function applyCounterDamage(t, amount, dir){
 
 // 谁倒下了
 function onDown(t){
+  if (CFG.brawlerSkills && t === p1 && !t.lastStand){        // 打手·最后的反击
+    t.lastStand = true; t.lastStandT = 30; t.hp = Math.max(1, t.hp);
+    t.takenTotal = Math.max(t.takenTotal, 2000);
+    showSkill('最后的反击！', '30 秒不倒 · 反击池保底 2000', '#ff7a1a');
+    flash = Math.max(flash, .5); shake = Math.max(shake, 26);
+    return;
+  }
   if (CFG.skills && t === p2 && p2.immortalCd <= 0 && p2.reviving <= 0){   // 枪手·不朽（冷却好了就能再触发）
     p2.reviving = SK.reviveTime;
     p2.immortalCd = SK.immortalCd;
@@ -666,6 +673,11 @@ function applyDifficulty(key){
   DMG.brawlerSwing = d.swing; DMG.brawlerHeavy = d.heavy;
   DMG.gunRanged = d.ranged;  DMG.gunMelee = d.melee;
   SK.frenzyCd = d.frenzyCd;
+  if (playerSide === 'gunner'){                       // 玩家操控枪手：自身数值走一丝神力
+    const d2 = DIFFS.divine;
+    MAX_HP = Math.max(MAX_HP, d2.hp);
+    CFG = Object.assign({}, d, { reload: d2.reload, alwaysCharged: false, chargeSpeedX: d2.chargeSpeedX });
+  }
   p1.maxHp = p2.maxHp = MAX_HP;
   p1.hp = p2.hp = MAX_HP;
   resetRound();
@@ -1553,7 +1565,7 @@ function gunnerInput(dt){
   if (Math.abs(foe.x - g.x) < LEAP_RANGE) closeT += dt;
   else if (Math.abs(foe.x - g.x) > LEAP_RANGE * 1.6) closeT = 0;
   if (g.stun > 0 || g.reviving > 0) return;
-  if (/^fire/.test(g.state) || ['club','club2','block','dodge','reload'].includes(g.state)) return;
+  if (/^fire/.test(g.state) || ['club','club2','block','dodge','reload','slide','leap'].includes(g.state)) return;
   g.face = foe.x > g.x ? 1 : -1;
 
   let mv = 0;
@@ -1738,7 +1750,7 @@ function step(dt){
 
     }
   }
-  if (CFG.skills && !p2.frenzy && p2.reviving <= 0 && p2.frenzyCd <= 0 && p2.hp > 0){   // 冷却好了就放
+  if (CFG.skills && playerSide !== 'gunner' && !p2.frenzy && p2.reviving <= 0 && p2.frenzyCd <= 0 && p2.hp > 0){   // 冷却好了就放
     p2.frenzy = true;
     p2.dmgMult = 1; p2.chargeDmg = 0;
     p2.chargeAt = 1 + Math.random() * 3;              // 狂化：开始蓄能
@@ -1875,13 +1887,6 @@ function step(dt){
   }
   if (p1.forceCd > 0) p1.forceCd -= dt;
 
-  // 打手·最后的反击：死亡后还能撑 30 秒
-  if (CFG.brawlerSkills && p1.hp <= 0 && !p1.lastStand){
-    p1.lastStand = true; p1.lastStandT = 30; p1.hp = 1;
-    p1.takenTotal = Math.max(p1.takenTotal, 2000);
-    showSkill('最后的反击！', '30 秒不倒 · 反击池保底 2000', '#ff7a1a');
-    flash = Math.max(flash, .5); shake = Math.max(shake, 26);
-  }
   if (p1.lastStand && p1.lastStandT > 0){
     p1.lastStandT -= dt;
     if (p1.hp < 1) p1.hp = 1;
@@ -1971,7 +1976,7 @@ function step(dt){
   checkHit(p2, p1, {club:[.35,.62], club2:[.35,.62]}, DMG.gunMelee,
            ()=> inBox(hitBox(p2, 150), p1));
 
-  if (!over && (p1.hp <= 0 || (p2.hp <= 0 && p2.reviving <= 0))){
+  if (!over && ((p1.hp <= 0 && !(p1.lastStand && p1.lastStandT > 0)) || (p2.hp <= 0 && p2.reviving <= 0))){
     over = true; slowmo = 1.6; hitstop = 0.22; flash = 0.35; shake = 26;   // 定格 + 慢镜
     const p1Win = p2.hp <= 0;
     if (p1Win) score1++; else score2++;
@@ -2510,7 +2515,8 @@ preload(()=>{
 
         // 9 狂化 + 蓄能
         resetRound(); over = false; p2.frenzy = false; p2.frenzyCd = 0; p2.hp = p2.maxHp;
-        sim(2); const fz = p2.frenzy && p2.chargeAt > 0;
+        if (playerSide === 'gunner'){ keyReq.e = true; p2.frenzyCd = 0; }
+        sim(3); const fz = p2.frenzy && p2.chargeAt > 0;
         ok('frenzy', !CFG.skills ? true : fz, 'fz' + (p2.frenzy ? 1 : 0) + 'at' + (p2.chargeAt || 0).toFixed(1));
 
         // 9.5 长跑：双方 AI/玩家空转 15 秒不报错、有伤害发生
@@ -2554,6 +2560,25 @@ preload(()=>{
           }
           ok('forceWeak', warnSeen && pullSeen && p2.hp < p2.maxHp,
              `warn${warnSeen?1:0},pull${pullSeen?1:0},d${Math.round(Math.abs(p2.x-x0))},hp${Math.round(p2.hp)}`);
+        }
+
+        // 9.95 最后的反击：不会立刻结束回合
+        if (CFG.brawlerSkills && playerSide === 'gunner'){
+          resetRound(); over = false; gameStarted = true;
+          p1.lastStand = false; p1.lastStandT = 0; p1.takenTotal = 0; p1.hp = 5;
+          applyDamage(p1, 50, 1);
+          for (let i = 0; i < 5; i++) step(0.02);
+          ok('lastStand', !over && p1.lastStand && p1.hp >= 1,
+             `over${over?1:0},hp${Math.round(p1.hp)},ls${p1.lastStand?1:0}`);
+          p1.lastStand = false; p1.lastStandT = 0;
+        }
+
+        // 9.96 滑铲状态不被下一帧覆盖
+        if (playerSide === 'gunner' && CFG.slideDodge){
+          resetRound(); over = false; p2.state = 'idle'; p2.slideT = 0;
+          keys['k'] = true; step(0.02); keys['k'] = false;
+          const st1 = p2.state; step(0.02);
+          ok('slideState', st1 === 'slide' && p2.state === 'slide', `s1_${st1},s2_${p2.state}`);
         }
 
         // 10 枪手模式开火
