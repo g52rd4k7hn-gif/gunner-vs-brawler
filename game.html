@@ -1610,7 +1610,7 @@ function aiBrawler(dt){
     f.forcePool = Math.round(f.takenTotal);          // 快照：避免中途被还击清空
     const insaneForce = !!CFG.brawlerSkills;
     f.forceWarn = insaneForce ? 0.8 : 5;             // 预警时长
-    f.pullSpeed = insaneForce ? 1200 : 500;          // 吸附速度
+    f.pullSpeed = insaneForce ? 1200 : 650;          // 吸附速度（神力 650 / 不可 1200）
     f.pullDur   = insaneForce ? 99 : (playerSide === 'gunner' ? 8 : 7);   // 吸附时长（不可=吸到为止）
     f.forceT = f.forceWarn;
     f.forceCd = f.lastStand ? 5 : 10;      // 不倒期间 5 秒一次
