@@ -124,7 +124,7 @@
     </div>
     <div class="pad right">
       <button data-k="l">挡</button>
-      <button data-k="leap" class="gunonly">跳</button>
+      <button data-k="leap" class="gunonly">后跳</button>
       <button data-k="frenzy" class="gunonly">狂</button>
       <button data-k="heavy">重</button>
       <button data-k="j">打</button>
@@ -182,6 +182,7 @@ const SPRITES = {
   "gun_butt": {n: 19, loop: false},
   "gun_hop": {n: 19, loop: false},
   "gun_walk": {n: 24, loop: true},
+  "gun_slide": {n: 17, loop: false},
   "gun_jump": {n: 22, loop: false},
   "gun_run": {n: 17, loop: true},
   "gun_leap_back": {n: 22, loop: false},
@@ -202,20 +203,20 @@ let MAX_HP = 4000;            // 双方血量（随难度变化）
 const DIFFS = {
   normal: {                       // 普通：去掉技能，数值回到最初版本
     label: '普通', desc: '无技能 · 最初数值',
-    hp: 500, swing: 8, heavy: 14, ranged: 9, melee: 7,
+    hp: 500, swing: 8, heavy: 14, ranged: 9, melee: 7, slideDodge: true,
     skills: false, frenzyCd: 30, reload: 1.5, knockbackX: 1,
     alwaysCharged: false, chargeSpeedX: 3, homing: 0, reflectable: true,
   },
   divine: {                       // 一丝神力：当前版本
     label: '一丝神力', desc: '完整技能 · 当前数值',
-    hp: 4000, swing: 100, heavy: 200, ranged: 150, melee: 75,
+    hp: 4000, swing: 100, heavy: 200, ranged: 150, melee: 75, slideDodge: false,
     skills: true, frenzyCd: 30, reload: 1.5, knockbackX: 1,
     alwaysCharged: false, chargeSpeedX: 3, homing: 0, reflectable: true,
   },
   insane: {                       // 不可思议
     brawlerSkills: true,          // 打手（作为 Boss 时）拥有 全力 / 最后的反击
     label: '不可思议', desc: '狂化无冷却 · 每枪蓄能 · 2.5 秒装弹 · 击飞 ×15 · 4 倍速不可反弹',
-    hp: 4000, swing: 100, heavy: 200, ranged: 150, melee: 75,
+    hp: 4000, swing: 100, heavy: 200, ranged: 150, melee: 75, slideDodge: false,
     skills: true, frenzyCd: 0, reload: 2.5, knockbackX: 15,
     alwaysCharged: true, chargeSpeedX: 4, homing: 0, reflectable: false, brawlerSkills: true,
   },
@@ -447,7 +448,7 @@ function boom(x, y, r, rgba){
 const BRAWLER = {idle:'bat_idle', walk:'bat_walk', run:'bat_run', jump:'bat_jump',
   swing:'bat_swing_h', swing2:'bat_swing_v', dodge:'bat_slide', parry:'bat_parry',
   hit:'bat_stagger', ko:'bat_kneel', leap:'bat_leap_back', pull:'bat_pull'};
-const GUNNER = {idle:'gun_idle', walk:'gun_walk', run:'gun_run', jump:'gun_jump', leap:'gun_leap_back',
+const GUNNER = {idle:'gun_idle', walk:'gun_walk', run:'gun_run', jump:'gun_jump', leap:'gun_leap_back', slide:'gun_slide',
   aim:'gun_aim_b', fire:'gun_fire_b', aimUp:'gun_aim_up_b', fireUp:'gun_fire_up_b',
   aimM55:'gun_aim_am55', fireM55:'gun_fire_am55',
   aimM25:'gun_aim_am25', fireM25:'gun_fire_am25',
@@ -656,7 +657,7 @@ const COOL_DEF = {
        ['反击池', ()=> p1.takenTotal / counterCap()] ],
   2: [ ['不朽', ()=> 1 - Math.max(0, p2.immortalCd) / SK.immortalCd],
        ['狂化', ()=> p2.frenzy ? 1 : 1 - Math.max(0, p2.frenzyCd) / SK.frenzyCd],
-       ['蓄能', ()=> p2.chargeTotal > 0 ? 1 - Math.max(0, p2.chargeAt) / p2.chargeTotal : (p2.frenzy ? 0 : 0)] ],
+       ['蓄能', ()=> p2.chargeReady ? 1 : (p2.chargeTotal > 0 ? 1 - Math.max(0, p2.chargeAt) / p2.chargeTotal : 0)] ],
 };
 function applyDifficulty(key){
   const d = DIFFS[key] || DIFFS.divine;
@@ -674,10 +675,16 @@ function applyDifficulty(key){
   document.title = '枪手 vs 打手 · ' + d.label;
 }
 function updateTip(){
+  const pad = document.getElementById('touch');
+  if (pad) pad.querySelectorAll('.gunonly').forEach(b=>{
+    b.style.display = playerSide === 'gunner' ? '' : 'none';
+  });
   const tip = document.getElementById('tip');
   if (!tip) return;
   tip.textContent = playerSide === 'gunner'
-    ? 'A/D 移动 · W 跳 · J 开火（蓄能就绪时发射蓄能弹）· Shift+J 枪托 · K 后跳 · K+W 大后跳 · L 格挡 · E 狂化 · F1 调试'
+    ? (CFG.slideDodge
+      ? 'A/D 移动 · W 跳 · J 开火 · U 枪托 · K 滑铲 · L 格挡 · F1 调试'
+      : 'A/D 移动 · W 跳 · J 开火（蓄能就绪时发射）· U 枪托 · K 后跳 · K+W 大后跳 · L 格挡 · E 狂化 · F1 调试')
     : 'A/D 移动 · Shift 跑 · W 跳（可二段）· J 挥击（Shift+J 重击）· K 闪避 · L 拨挡（反弹子弹）· F1 调试';
 }
 
@@ -736,7 +743,8 @@ function updateCools(){
       else if (lab === '反击池') lb.textContent = `反击池 ${Math.round(p1.takenTotal)}/${counterCap()}`;
       else if (lab === '不朽')  lb.textContent = p2.immortalCd > 0 ? `不朽 ${Math.ceil(p2.immortalCd)}s` : '不朽 就绪';
       else if (lab === '狂化')  lb.textContent = p2.frenzy ? '狂化中' : (p2.frenzyCd > 0 ? `狂化 ${Math.ceil(p2.frenzyCd)}s` : '狂化 就绪');
-      else if (lab === '蓄能')  lb.textContent = p2.chargeAt > 0 ? `蓄能预备 ${p2.chargeAt.toFixed(1)}s` : (p2.frenzy ? '蓄能 待定' : '蓄能 无');
+      else if (lab === '蓄能')  lb.textContent = p2.chargeReady ? '蓄能 就绪（按 J 发射）'
+        : (p2.chargeAt > 0 ? `蓄能预备 ${p2.chargeAt.toFixed(1)}s` : (p2.frenzy ? '蓄能 待定' : '蓄能 无'));
     });
   }
 }
@@ -1541,6 +1549,9 @@ function fireCharge(g = p2){
 
 function gunnerInput(dt){
   const g = p2, foe = p1;
+  // 贴身计时：玩家在枪手位时也要累计，用于解锁大后跳
+  if (Math.abs(foe.x - g.x) < LEAP_RANGE) closeT += dt;
+  else if (Math.abs(foe.x - g.x) > LEAP_RANGE * 1.6) closeT = 0;
   if (g.stun > 0 || g.reviving > 0) return;
   if (/^fire/.test(g.state) || ['club','club2','block','dodge','reload'].includes(g.state)) return;
   g.face = foe.x > g.x ? 1 : -1;
@@ -1553,8 +1564,8 @@ function gunnerInput(dt){
 
   if (jumpReq){ jumpReq = false; tryJump(g); }
 
-  if (keys['j'] && g.chargeReady){ fireCharge(g); return; }   // 蓄能就绪：按攻击发射
-  if (keys['j'] && keys['shift']){ g.set(Math.random() < 0.5 ? 'club' : 'club2', {force:true}); return; }
+  if (keys['j'] && g.chargeReady){ fireCharge(g); return; }   // J：蓄能就绪时发射蓄能弹
+  if (keys['u']){ g.set(Math.random() < 0.5 ? 'club' : 'club2', {force:true}); return; }   // U：枪托
   if (keys['j'] && fireCd <= 0 && g.reloading <= 0){
     const dy = (GROUND - CHEST - (foe.y||0)) - (GROUND - CHEST - (g.y||0));
     const deg = Math.atan2(dy, Math.abs(foe.x - g.x)) * 180 / Math.PI;
@@ -1565,7 +1576,15 @@ function gunnerInput(dt){
     return;
   }
   // K：小后跳（无位移射击）；K+W 或贴身 3 秒后：大后跳（带空中射击）
-  if ((keys['k'] || keyReq.q) && g.leapT <= 0 && g.state !== 'leap'){
+  if (keys['k'] && CFG.slideDodge && g.slideT <= 0 && g.state !== 'leap'){   // 普通难度：滑铲
+    g.set('slide', {force:true});
+    g.slideT = DODGE_TIME;
+    g.slideVx = g.face * (2 * DODGE_DIST / DODGE_TIME);
+    g.invuln = DODGE_INVULN;
+    sfx('land');
+    return;
+  }
+  if ((keys['k'] || keyReq.q) && !CFG.slideDodge && g.leapT <= 0 && g.state !== 'leap'){
     const big = (keys['k'] && (keys['w'] || jumpReq)) || closeT >= 3 || keyReq.q;
     keyReq.q = false;
     if (big){
@@ -1976,6 +1995,7 @@ function resetFighter(f){
   f.frenzy = false; f.frenzyCd = 0; f.frenzyLeft = 0; f.frenzyT = 0; f.frenzyGlow = false;
   f.frenzyCount = 0; f.frenzyStacks = 0; f.chargeDmg = 0; f.chargeAt = 0; f.chargeWarn = 0;
   f.pierceShot = false; f.pierceVolley = 0; f.pierceNext = 0; f.pierceDmg = 0;
+  f.chargeReady = false; f.leapShoot = true; f.leapDist = 0; f.leapMoved = 0;
   f.reviving = 0; f.immortalCd = 0; f.reviveFull = false;
   f.takenTotal = 0; f.storedDmg = 0; f.counterCd = 0; f.wetShot = false;
 }
@@ -2434,12 +2454,12 @@ preload(()=>{
         // 8 不朽
         resetRound(); over = false; p2.immortalCd = 0; p2.reviving = 0; p2.shield = 0; p2.hp = 0;
         onDown(p2); const entered = p2.reviving > 0; p2.reviving = 0.05; sim(20);
-        ok('immortal', entered && p2.hp > 0, 'hp' + Math.round(p2.hp));
+        ok('immortal', !CFG.skills ? true : (entered && p2.hp > 0), 'hp' + Math.round(p2.hp));
 
         // 9 狂化 + 蓄能
         resetRound(); over = false; p2.frenzy = false; p2.frenzyCd = 0; p2.hp = p2.maxHp;
         sim(2); const fz = p2.frenzy && p2.chargeAt > 0;
-        ok('frenzy', fz, 'fz' + (p2.frenzy ? 1 : 0) + 'at' + (p2.chargeAt || 0).toFixed(1));
+        ok('frenzy', !CFG.skills ? true : fz, 'fz' + (p2.frenzy ? 1 : 0) + 'at' + (p2.chargeAt || 0).toFixed(1));
 
         // 9.5 长跑：双方 AI/玩家空转 15 秒不报错、有伤害发生
         resetRound(); over = false; gameStarted = true;
@@ -2447,6 +2467,26 @@ preload(()=>{
           for (let i = 0; i < 750; i++) step(0.02);   // 15 秒
           const dmgHappened = (p1.hp + p2.hp) < hp0;
           ok('longrun', !over || dmgHappened, 'hp' + Math.round(p1.hp + p2.hp)); }
+
+        // 9.7 UI：切换角色后手机按钮显隐 & 提示文本
+        { const before = playerSide;
+          playerSide = 'gunner'; updateTip();
+          const pad = document.getElementById('touch');
+          const shown = pad ? [...pad.querySelectorAll('.gunonly')].every(b => b.style.display !== 'none') : false;
+          const tipG = document.getElementById('tip').textContent.indexOf('枪托') >= 0;
+          playerSide = 'brawler'; updateTip();
+          const hidden = pad ? [...pad.querySelectorAll('.gunonly')].every(b => b.style.display === 'none') : false;
+          const tipB = document.getElementById('tip').textContent.indexOf('拨挡') >= 0;
+          playerSide = before; updateTip();
+          ok('ui', shown && hidden && tipG && tipB, `sh${shown?1:0},hd${hidden?1:0}`); }
+
+        // 9.8 大后跳：贴身计时解锁
+        { resetRound(); over = false; closeT = 3.2;
+          const g = p2; g.leapT = 0; keys['k'] = true; keys['w'] = false;
+          if (playerSide === 'gunner'){ for (let i = 0; i < 2; i++) step(0.02); }
+          keys['k'] = false;
+          ok('bigleap', playerSide !== 'gunner' || CFG.slideDodge || g.leapT > 0 || Math.abs(g.leapDist || 0) > 400,
+             'lt' + (g.leapT||0).toFixed(2) + ',d' + (g.leapDist||0)); }
 
         // 10 枪手模式开火
         if (playerSide === 'gunner'){
