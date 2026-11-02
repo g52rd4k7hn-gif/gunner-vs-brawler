@@ -388,9 +388,8 @@ function applyDamage(t, dmg, dir){
     }
   }
   if (t === p2 && p2.frenzy) real *= 1;            // 狂化不加受伤
-  if (t.shield > 0 && real > 0){                    // 护盾先抗（单次上限 = 历史最高护盾/3）
-    const cap = Math.max(1, Math.round((t.shieldMax || 0) / 3));
-    const absorbed = Math.min(t.shield, real, cap);
+  if (t.shield > 0 && real > 0){                    // 护盾先抗（不设单次上限，能吃多少吃多少）
+    const absorbed = Math.min(t.shield, real);
     t.shield -= absorbed; real -= absorbed;
   }
   t.hp = Math.max(0, t.hp - real);
@@ -409,8 +408,7 @@ function counterCap(){ return SK.counterBaseCap + Math.max(0, p2.shield || 0); }
 function applyCounterDamage(t, amount, dir){
   if (t.shield > 0){
     const factor = Math.min(1, t.shield / 1000);
-    const cap = Math.max(1, Math.round((t.shieldMax || 0) / 3));
-    const toShield = Math.min(t.shield, amount * factor, cap);
+    const toShield = Math.min(t.shield, amount * factor);
     t.shield -= toShield;
     amount -= toShield;
   }
@@ -2542,6 +2540,12 @@ preload(()=>{
         resetRound(); over = false;
         p1.takenTotal = 0; for (let i = 0; i < 40; i++){ applyDamage(p1, 300, 1); p1.stun = 0; }
         ok('cap', p1.takenTotal <= counterCap(), 'pool' + Math.round(p1.takenTotal));
+
+        // 护盾：不再有单次上限
+        { resetRound(); p2.hp = p2.maxHp; p2.shield = 900; p2.shieldMax = 900; p2.invuln = 0;
+          const s0 = p2.shield; applyDamage(p2, 1000, 1);
+          ok('shieldFull', Math.abs((s0 - p2.shield) - 900) < 1 && p2.hp === p2.maxHp - 100,
+             'ate' + Math.round(s0 - p2.shield) + ',hp' + Math.round(p2.hp)); }
 
         // 5 换弹
         resetRound(); over = false; p2.x = p1.x + 300; p2.testFreeze = true; fireCd = 0;
