@@ -1785,11 +1785,12 @@ function step(dt){
       if (keyReq.r && playerSide === 'brawler' && p1.forceCd <= 0 && p1.takenTotal > 500
       && !p1.forcePhase && ['idle','walk','run'].includes(p1.state)){
     keyReq.r = false;
-    p1.forcePhase = 1; p1.forcePool = Math.round(p1.takenTotal);
-    p1.forceWarn = 5; p1.forceT = 5; p1.pullSpeed = 650; p1.pullDur = 7;
+    p1.forcePool = Math.round(p1.takenTotal);
+    p1.forcePhase = 2;                       // 玩家操控：跳过预警，直接吸附
+    p1.forceT = 7; p1.pullSpeed = 650; p1.pullDur = 7;
     p1.forceCd = 25;
     p1.set('pull', {force:true});
-    showSkill('木易 · 全力（预警）', '5 秒后吸附', '#a050ff');
+    showSkill('木易 · 全力！', '吸附中', '#a050ff');
     sfx('charge');
     return;
   }
@@ -2662,7 +2663,7 @@ preload(()=>{
           resetRound(); over = false; p1.takenTotal = 800; p1.forceCd = 0; p1.forcePhase = 0;
           p1.state = 'idle'; p1.stun = 0;
           keyReq.r = true; step(0.02);
-          ok('brawlerForce', p1.forcePhase === 1 && p1.forceCd > 0,
+          ok('brawlerForce', p1.forcePhase === 2 && p1.forceCd > 0,
              `ph${p1.forcePhase || 0},cd${(p1.forceCd||0).toFixed(0)}`);
           p1.forcePhase = 0; p1.forceCd = 0;
         }
