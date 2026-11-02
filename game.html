@@ -1053,6 +1053,7 @@ function updateBullets(dt){
           p2.shieldMax = Math.max(p2.shieldMax || 0, p2.shield);
         }
       }
+      window.__bulletHits = (window.__bulletHits || 0) + 1;
       hitstop = .07; shake = 10; flash = .16;
       sparks.push({x: b.x, y: b.y, t: 0});
       b.alive = false;
@@ -1245,9 +1246,23 @@ function aiStep(dt){
   p2.face = faceTo;
   const d = Math.abs(p1.x - p2.x);
 
-  if (p2.reloading > 0){                              // 换弹中：边退边装，别站桩
-    if (d < 420){ p2.x -= faceTo * 240 * dt; p2.set('retreat'); }
+  if (p2.reloading > 0){                              // 换弹中：退到 560 以外再装
+    if (d < 560){ p2.x -= faceTo * 330 * dt; p2.set('retreat'); }
     return;
+  }
+  // 有物件朝自己飞过来（重击弹道）：格挡或跳
+  for (const pr of PROPS){
+    if (!pr.projectile) continue;
+    const dxp = pr.x - p2.x;
+    if (Math.abs(dxp) < 320 && Math.sign(-dxp) === Math.sign(pr.vx)){
+      if (blockCd <= 0){ p2.set('block', {force:true}); blockCd = 1.0; p2.blockT = 0.6; return; }
+      if (p2.jumps === 0 && Math.random() < 0.5){ tryJump(p2); return; }
+    }
+  }
+  // 收尾：对方残血又贴脸 → 抡枪托
+  if (p1.hp < 260 && d < 220 && attackCd <= 0){
+    p2.set(Math.random() < 0.5 ? 'club' : 'club2', {force:true});
+    attackCd = 0.9; return;
   }
   // 对方在挥击/硬直：立刻补一枪（抓到空档）
   if (fireCd <= 0 && d > 180 && (p1.state === 'swing2' || p1.stun > 0)){
@@ -1258,9 +1273,24 @@ function aiStep(dt){
     p2.set('fire' + t2, {force:true}); fireCd = 1.35;
     return;
   }
-  // 贴脸且枪已上膛：先退半步再打（风筝）
-  if (d < 240 && fireCd <= 0 && p2.reloading <= 0 && Math.random() < 0.5){
-    p2.x -= faceTo * 300 * dt; p2.set('retreat');
+  // 枪已上膛且在射程内：立刻开火（不再先走位）
+  if (fireCd <= 0 && d > 150 && d < 1100){
+    const dyF = (GROUND - 250 - (p1.y||0)) - (GROUND - 126 - (p2.y||0));
+    const degF = Math.atan2(dyF, Math.abs(p1.x - p2.x)) * 180 / Math.PI;
+    let tF = 'P0';
+    if (degF < -40) tF = 'M55'; else if (degF < -12) tF = 'M25'; else if (degF > 9) tF = 'P18';
+    p2.set('fire' + tF, {force:true});
+    fireCd = 1.15;
+    return;
+  }
+
+  // 风筝：太近先退（不等射击冷却，随时退）
+  if (d < 330){
+    p2.x -= faceTo * 330 * dt;
+    p2.set('retreat');
+    if (d > 200 && fireCd <= 0 && Math.random() < 0.35){   // 退的同时偶尔抬手一枪
+      p2.set('fireP0', {force:true}); fireCd = 1.35;
+    }
     return;
   }
 
@@ -2764,6 +2794,7 @@ preload(()=>{
           resetRound(); over = false; fireCd = 0; p2.reloading = 0; bullets.length = 0;
           p2.state = 'idle'; p2.leapT = 0; p2.slideT = 0; p2.stun = 0;
           const shots0 = window.__shotCount || 0;
+        const hits0 = window.__bulletHits || 0;
           keys['j'] = true; sim(25); keys['j'] = false;
           ok('gunfire', (window.__shotCount || 0) > shots0, 'shots' + ((window.__shotCount||0) - shots0) + ',st' + p2.state);
         }
@@ -2837,6 +2868,8 @@ preload(()=>{
       try {
         resetRound(); over = false; gameStarted = true;
         const hp0 = p1.hp + p2.hp;
+        const shots0 = window.__shotCount || 0;
+        const hits0 = window.__bulletHits || 0;
         let swings = 0, shots = 0, leaps = 0;
         for (let i = 0; i < 900; i++){               // 18 秒
           hitstop = 0; step(0.02);
@@ -2849,6 +2882,9 @@ preload(()=>{
         out.push(`总伤害=${Math.round(dealt)}`);
         out.push(`木易挥击帧=${swings}`);
         out.push(`枪手开火帧=${shots}`);
+        out.push(`实际出膛=${(window.__shotCount||0) - shots0}`);
+        out.push(`命中=${(window.__bulletHits||0) - hits0}`);
+        out.push(`末态 hp: 木易${Math.round(p1.hp)} 枪手${Math.round(p2.hp)} shield${Math.round(p2.shield)}`);
         out.push(`枪手后跳帧=${leaps}`);
         out.push(`结果:${over ? '分出胜负' : '仍在战斗'}`);
       } catch(e){ out.push('ERR ' + e.message); }
