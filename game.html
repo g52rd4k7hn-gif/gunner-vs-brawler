@@ -1491,6 +1491,16 @@ function step(dt){
       if (parryReq){ parryReq = false;
         if (parryCd <= 0){ p1.set('parry',{force:true}); parryCd = .75; } }
     }
+    if (p1.state === 'jump'){                       // 空中操控：跳跃时也能左右移动
+      let mv = 0;
+      if (keys['a']) mv--;
+      if (keys['d']) mv++;
+      if (mv !== 0){
+        const airSpd = 230 * (keys['shift'] ? 1.5 : 1);
+        p1.x += mv * airSpd * dt;
+        p1.face = mv;
+      }
+    }
     if (keys['j'] && p1.state === 'jump'){ p1.set('swing', {force:true}); p1.vy = Math.min(p1.vy, -200); }   // 空中挥击：略微下坠
     if (!['idle','walk','run','jump'].includes(p1.state)) { jumpReq = false; parryReq = false; }
     if (keys['w'] && ['jump'].includes(p1.state) && p1.jumps < 2 && jumpReq){ }
@@ -2004,6 +2014,24 @@ preload(()=>{
       window.__leapTest.maxDx = Math.max(window.__leapTest.maxDx, Math.abs(p2.x - p1.x));
       document.title = `LEAPTEST leaps=${window.__leapTest.leaps} moved=${(p2.leapMoved||0).toFixed(0)} maxY=${(window.__maxLeapY||0).toFixed(0)} shots=${window.__shotCount||0} p2=${p2.state}`;
     }, 200);
+  }
+  if (new URLSearchParams(location.search).get('test') === 'air'){
+    setTimeout(()=>{
+      const out = [];
+      try {
+        p1.x = 9000; p1.y = 200; p1.vy = 0; p1.state = 'jump'; p1.jumps = 1;
+        const x0 = p1.x;
+        keys['a'] = false; keys['d'] = true;
+        for (let i = 0; i < 30; i++) step(0.016);
+        out.push('按住右空中位移=' + (p1.x - x0).toFixed(0) + 'px');
+        const x1 = p1.x;
+        keys['d'] = false; keys['a'] = true;
+        for (let i = 0; i < 30; i++) step(0.016);
+        out.push('按住左空中位移=' + (p1.x - x1).toFixed(0) + 'px');
+        keys['a'] = keys['d'] = false;
+      } catch(e){ out.push('ERR ' + e.message); }
+      document.title = 'AIR ' + out.join(' | ');
+    }, 800);
   }
   if (new URLSearchParams(location.search).get('test') === 'dmg'){
     setTimeout(()=>{
