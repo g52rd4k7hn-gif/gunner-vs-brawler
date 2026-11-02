@@ -226,7 +226,7 @@ let gameStarted = false;
 let playerSide = 'brawler';     // 'brawler' | 'gunner'
 const CW = 1280, CH = 720, GROUND = 640, FPS = 24;
 const WORLD = CW * 20;                 // 地图放大 20 倍
-const GRAV = 2300, JUMP_V = 990;       // 跳起约 212px（原来的一半）
+const GRAV = 2300, JUMP_V = 1150;      // 一段跳约 287px（原 212 + 75）
 const DPR = Math.min(2, window.devicePixelRatio || 1);
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
 cv.width = Math.round(CW * DPR); cv.height = Math.round(CH * DPR);
@@ -1234,6 +1234,7 @@ function checkHit(a, b, windows, dmg, rangeOk){
 
 // ── AI ──
 function aiStep(dt){
+  if (p2.testFreeze) return;
   // 贴身计时：放在最前面，换弹/出招/硬直期间也照样累计
   const dNow = Math.abs(p1.x - p2.x);
   if (dNow < LEAP_RANGE) closeT += dt;
@@ -1917,7 +1918,7 @@ function step(dt){
     }
     if (keys['j'] && p1.state === 'jump'){ p1.set('swing', {force:true}); p1.vy = Math.min(p1.vy, -200); }   // 空中挥击：略微下坠
     if (!['idle','walk','run','jump'].includes(p1.state)) { jumpReq = false; parryReq = false; }
-    if (keys['w'] && ['jump'].includes(p1.state) && p1.jumps < 2 && jumpReq){ }
+    if (jumpReq && p1.state === 'jump' && p1.jumps < 2){ jumpReq = false; tryJump(p1); }   // 二段跳
   } else if (playerSide === 'brawler') { jumpReq = false; parryReq = false; }
 
   // 玩家 = 枪手：自己控制枪手
@@ -2909,6 +2910,31 @@ preload(()=>{
         out.push('枪手跳远=' + meas('gunner') + 'px');
       } catch(e){ out.push('ERR ' + e.message); }
       document.title = 'JUMPDIST ' + out.join(' | ');
+    }, 800);
+  }
+  if (new URLSearchParams(location.search).get('test') === 'dj'){
+    setTimeout(()=>{
+      const out = [];
+      try {
+        resetRound(); over = false; p2.testFreeze = true;
+        p1.y = 0; p1.vy = 0; p1.jumps = 0; p1.stun = 0; p1.state = 'idle';
+        jumpReq = true; step(0.02);                       // 一段跳
+        let maxY = 0, n = 0;
+        while (p1.y > 4 && n < 200){
+          hitstop = 0; step(0.02); n++;
+          maxY = Math.max(maxY, p1.y);
+          if (p1.vy < 0 && p1.jumps === 1 && p1.y > 120){ jumpReq = true; window.__djFired = (window.__djFired||0)+1; }   // 半空按第二次
+        }
+        out.push('两次跳最大高度=' + Math.round(maxY) + 'px 空中按键次数=' + (window.__djFired || 0));
+        { const t = p1; t.y = 100; t.vy = 0; t.jumps = 1; t.state = 'jump'; tryJump(t);
+          out.push('直接二段跳后 vy=' + Math.round(t.vy) + ' jumps=' + t.jumps); }
+        resetRound(); over = false; p1.y = 0; p1.vy = 0; p1.jumps = 0; p1.state = 'idle';
+        jumpReq = true; step(0.02);
+        let maxY2 = 0, n2 = 0;
+        while (p1.y > 4 && n2 < 200){ hitstop = 0; step(0.02); n2++; maxY2 = Math.max(maxY2, p1.y); }
+        out.push('单跳最大高度=' + Math.round(maxY2) + 'px');
+      } catch(e){ out.push('ERR ' + e.message); }
+      document.title = 'DJ ' + out.join(' | ');
     }, 800);
   }
   if (new URLSearchParams(location.search).get('test') === 'jump'){
