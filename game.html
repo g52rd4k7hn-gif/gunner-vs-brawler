@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>枪手 vs 打手 — 火柴人格斗</title>
+<title>枪手 vs 木易 — 火柴人格斗</title>
 <style>
   html,body{margin:0;height:100%;background:#111;overflow:hidden;touch-action:none;overscroll-behavior:none;-webkit-user-select:none;user-select:none;
     font-family:"Hiragino Sans GB","PingFang SC",sans-serif;}
@@ -104,12 +104,12 @@
     </div>
   </div>
   <div id="start">
-    <h1>枪手 vs 打手</h1>
+    <h1>枪手 vs 木易</h1>
     <p>火柴人格斗 · 三局两胜 · 选择难度开始</p>
     <div class="opts">
       <button data-d="normal"><b>普通</b><span>无技能 · 最初数值（血量 500）</span></button>
       <button data-d="divine"><b>一丝神力</b><span>完整技能 · 当前数值</span></button>
-      <button id="roleBtn" type="button"><b>扮演：打手</b><span>点一下切换成「扮演枪手」</span></button>
+      <button id="roleBtn" type="button"><b>扮演：木易</b><span>点一下切换成「扮演枪手」</span></button>
       <button data-d="insane"><b>不可思议</b><span>狂化无冷却 · 每枪蓄能 · 2.5s 装弹<br>击飞 ×15 · 4 倍速不可反弹</span></button>
     </div>
   </div>
@@ -466,7 +466,7 @@ const GUNNER = {idle:'gun_idle', walk:'gun_walk', run:'gun_run', jump:'gun_jump'
   hit:'gun_hit', ko:'gun_kneel_reload', dodge:'gun_dodge_l'};
 
 const START_X = WORLD*0.46;
-const p1 = new Fighter({name:'打手', x: START_X - 210, face: 1, scale: 0.62, acts: BRAWLER});
+const p1 = new Fighter({name:'木易', x: START_X - 210, face: 1, scale: 0.62, acts: BRAWLER});
 const p2 = new Fighter({name:'枪手', x: START_X + 210, face: -1, scale: 0.62, acts: GUNNER});
 
 let zoom = 1, score1 = 0, score2 = 0, roundNo = 1, slowmo = 0, cam = 0, camY = 0, hitstop = 0, shake = 0, flash = 0, over = false;
@@ -489,7 +489,7 @@ const DODGE_DIST = 460, DODGE_TIME = 0.55, DODGE_INVULN = 0.45;
 let stepT = 0, dodgeCd = 0, stepCount = 0, combo = 0, comboT = 0, blockCd = 0;
 let closeT = 0;
 const keys = {};
-const keyReq = { q: false, e: false };
+const keyReq = { q: false, e: false, r: false };
 const AUTO = (new URLSearchParams(location.search).get('auto') || '').split(',').filter(Boolean);
 const SELFTEST = new URLSearchParams(location.search).get('selftest') === '1';
 const PROBE = new URLSearchParams(location.search).get('probe') === '1';
@@ -503,6 +503,7 @@ addEventListener('keydown', e=>{
   const k = e.key.toLowerCase();
   if (k === 'q' && !keys['q']) keyReq.q = true;
   if (k === 'e' && !keys['e']) keyReq.e = true;
+  if (k === 'r' && !keys['r']) keyReq.r = true;
   if (k === 'l' && !keys['l']) parryReq = true;
   if ((k === 'w' || k === ' ') && !keys[k]) jumpReq = true;
   keys[k] = true; e.preventDefault();
@@ -1496,7 +1497,7 @@ function tryCounter(){
   p1.takenTotal = 0;
   p1.set('swing2', {force:true});
   sfx('heavy');
-  showSkill('打手 · 还击！', Math.round(dmg) + ' 伤害', '#3c8ce0');
+  showSkill('木易 · 还击！', Math.round(dmg) + ' 伤害', '#3c8ce0');
   boom(p1.x, GROUND - CHEST, 200, 'rgba(60,140,224,');
   // 延迟到挥击命中时结算
   setTimeout(()=>{ if (!over && p2.hp > 0){ p2.hurt(dmg, Math.sign(p2.x - p1.x)); hitstop = .16; shake = 22; flash = .3; } }, 180);
@@ -1618,7 +1619,7 @@ function aiBrawler(dt){
     f.forceT = f.forceWarn;
     f.forceCd = CFG.brawlerSkills ? (f.lastStand ? 5 : 15) : 25;   // 不可 15s（不倒 5s）/ 神力 25s
     f.set('pull', {force:true});
-    showSkill('打手 · 全力（预警）', CFG.brawlerSkills ? '即将吸附！' : '5 秒后吸附', '#a050ff');
+    showSkill('木易 · 全力（预警）', CFG.brawlerSkills ? '即将吸附！' : '5 秒后吸附', '#a050ff');
     sfx('charge');
     return;
   }
@@ -1781,7 +1782,18 @@ function step(dt){
         if (strong) sfx('heavy');
         p1.chargeT = 0; p1.chargeSfx = false;
       }
-      if (keys['k'] && p1.slideT <= 0 && p1.state !== 'dodge'){
+      if (keyReq.r && playerSide === 'brawler' && p1.forceCd <= 0 && p1.takenTotal > 500
+      && !p1.forcePhase && ['idle','walk','run'].includes(p1.state)){
+    keyReq.r = false;
+    p1.forcePhase = 1; p1.forcePool = Math.round(p1.takenTotal);
+    p1.forceWarn = 5; p1.forceT = 5; p1.pullSpeed = 650; p1.pullDur = 7;
+    p1.forceCd = 25;
+    p1.set('pull', {force:true});
+    showSkill('木易 · 全力（预警）', '5 秒后吸附', '#a050ff');
+    sfx('charge');
+    return;
+  }
+  if (keys['k'] && p1.slideT <= 0 && p1.state !== 'dodge'){
         p1.set('dodge', {force:true});
         p1.slideT = DODGE_TIME; p1.slideVx = p1.face * (2 * DODGE_DIST / DODGE_TIME);   // 线性衰减下总位移 = DODGE_DIST
         p1.invuln = DODGE_INVULN;
@@ -1950,7 +1962,7 @@ function step(dt){
     if (p1Win) score1++; else score2++;
     document.getElementById('score').textContent = `${score1} : ${score2}`;
     const matchOver = score1 >= 2 || score2 >= 2;
-    const who = p1Win ? '打手' : '枪手';
+    const who = p1Win ? '木易' : '枪手';
     showMsg(matchOver ? `${who} 拿下比赛` : `${who} 胜 · 第 ${roundNo} 局`, matchOver);
   }
 }
@@ -2384,7 +2396,7 @@ function loop(now){
   ctx.fillText(`枪手  不朽 ${cd1} · 狂化 ${cd2} · 盾 ${Math.round(p2.shield || 0)}`, 20, CH - 58);
   const cd3 = p1.counterCd > 0 ? Math.ceil(p1.counterCd) + 's' : (p1.takenTotal > 0 ? '就绪·下一击引爆' : '就绪');
   ctx.fillStyle = 'rgba(50,60,80,.75)';
-  ctx.fillText(`打手  还击 ${cd3} · 反击池 ${Math.round(p1.takenTotal)}/${counterCap()}`, 20, CH - 38);
+  ctx.fillText(`木易  还击 ${cd3} · 反击池 ${Math.round(p1.takenTotal)}/${counterCap()}`, 20, CH - 38);
   ctx.restore();
   if (combo >= 3){
     ctx.save();
@@ -2424,7 +2436,7 @@ function applyDifficulty(key){
   gameStarted = true;
   const st = document.getElementById('start');
   if (st) st.style.display = 'none';
-  document.title = '枪手 vs 打手 · ' + d.label;
+  document.title = '枪手 vs 木易 · ' + d.label;
 }
 
 function updateTip(){
@@ -2434,7 +2446,7 @@ function updateTip(){
   if (!tip) return;
   tip.textContent = playerSide === 'gunner'
     ? 'A/D 移动 · W 跳 · J 开火（蓄能就绪时发射）· U 枪托 · K 滑铲 · K+W 大后跳 · L 格挡 · E 狂化 · F1 调试'
-    : 'A/D 移动 · Shift 跑 · W 跳（可二段）· J 挥击（Shift+J 重击）· K 闪避 · L 拨挡（反弹子弹）· F1 调试';
+    : 'A/D 移动 · Shift 跑 · W 跳（可二段）· J 挥击（Shift+J 重击）· K 闪避 · L 拨挡 · R 全力（池>500）· F1 调试';
 }
 
 function setupStart(){
@@ -2447,8 +2459,8 @@ function setupStart(){
       playerSide = (playerSide === 'brawler') ? 'gunner' : 'brawler';
       updateTip();
       roleBtn.innerHTML = playerSide === 'gunner'
-        ? '<b>扮演：枪手</b><span>点一下切换成「扮演打手」</span>'
-        : '<b>扮演：打手</b><span>点一下切换成「扮演枪手」</span>';
+        ? '<b>扮演：枪手</b><span>点一下切换成「扮演木易」</span>'
+        : '<b>扮演：木易</b><span>点一下切换成「扮演枪手」</span>';
     });
   }
   st.querySelectorAll('button[data-d]').forEach(b=>{
@@ -2643,6 +2655,16 @@ preload(()=>{
           keys['k'] = true; step(0.02); keys['k'] = false;
           const st1 = p2.state; step(0.02);
           ok('slideState', st1 === 'slide' && p2.state === 'slide', `s1_${st1},s2_${p2.state}`);
+        }
+
+        // 9.98 玩家操控木易：R 触发全力
+        if (playerSide === 'brawler'){
+          resetRound(); over = false; p1.takenTotal = 800; p1.forceCd = 0; p1.forcePhase = 0;
+          p1.state = 'idle'; p1.stun = 0;
+          keyReq.r = true; step(0.02);
+          ok('brawlerForce', p1.forcePhase === 1 && p1.forceCd > 0,
+             `ph${p1.forcePhase || 0},cd${(p1.forceCd||0).toFixed(0)}`);
+          p1.forcePhase = 0; p1.forceCd = 0;
         }
 
         // 10 枪手模式开火
