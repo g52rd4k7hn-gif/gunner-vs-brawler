@@ -63,12 +63,34 @@
     #hud{top:6px;font-size:11px}
     .bar{height:11px}
     #tip{display:none}
-    #msg{font-size:40px}
+    #start{position:absolute;inset:0;background:#0f0f12f2;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:18px;z-index:20;color:#f2efe8;padding:20px;text-align:center}
+  #start h1{margin:0;font-size:34px;letter-spacing:.06em}
+  #start p{margin:0;color:#a9a49a;font-size:13px}
+  #start .opts{display:flex;flex-direction:column;gap:12px;width:min(520px,92vw);margin-top:8px}
+  #start button{display:flex;flex-direction:column;gap:4px;padding:14px 18px;border-radius:12px;
+    border:1px solid #ffffff26;background:#ffffff10;color:#f2efe8;font-family:inherit;font-size:16px;text-align:left}
+  #start button b{font-size:18px}
+  #start button span{font-size:12px;color:#a9a49a;line-height:1.5}
+  #start button:hover{background:#ffffff1f;border-color:#ffffff45}
+  #start button:active{transform:scale(.99)}
+  #msg{font-size:40px}
   }
   #rotate{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
     background:#111c;color:#f2efe8;font-size:18px;text-align:center;line-height:1.8;pointer-events:none}
   @media (orientation:portrait) and (max-width:820px){ #rotate{display:flex} }
   #tip{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);color:#8b8880;font-size:12px;pointer-events:none}
+  #start{position:absolute;inset:0;background:#0f0f12f2;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:18px;z-index:20;color:#f2efe8;padding:20px;text-align:center}
+  #start h1{margin:0;font-size:34px;letter-spacing:.06em}
+  #start p{margin:0;color:#a9a49a;font-size:13px}
+  #start .opts{display:flex;flex-direction:column;gap:12px;width:min(520px,92vw);margin-top:8px}
+  #start button{display:flex;flex-direction:column;gap:4px;padding:14px 18px;border-radius:12px;
+    border:1px solid #ffffff26;background:#ffffff10;color:#f2efe8;font-family:inherit;font-size:16px;text-align:left}
+  #start button b{font-size:18px}
+  #start button span{font-size:12px;color:#a9a49a;line-height:1.5}
+  #start button:hover{background:#ffffff1f;border-color:#ffffff45}
+  #start button:active{transform:scale(.99)}
   #msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
     color:#2b2926;font-size:64px;font-weight:700;pointer-events:none;opacity:0;transition:opacity .2s}
   #loadbar{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:360px;height:8px;
@@ -88,6 +110,15 @@
     <div class="side right">
       <div class="bar right"><i id="hp2"></i></div>
       <div class="cools" id="cool2"></div>
+    </div>
+  </div>
+  <div id="start">
+    <h1>枪手 vs 打手</h1>
+    <p>火柴人格斗 · 三局两胜 · 选择难度开始</p>
+    <div class="opts">
+      <button data-d="normal"><b>普通</b><span>无技能 · 最初数值</span></button>
+      <button data-d="divine"><b>一丝神力</b><span>完整技能 · 当前数值</span></button>
+      <button data-d="insane"><b>不可思议</b><span>狂化无冷却 · 每枪蓄能 · 2.5s 装弹<br>击飞 ×15 · 4 倍速追踪弹 · 不可反弹</span></button>
     </div>
   </div>
   <div id="msg"></div>
@@ -168,7 +199,31 @@ const SPRITES = {
 
 window.onerror = (m, src, ln) => { document.title = 'ERR ' + m + ' @' + ln; };
 
-const MAX_HP = 4000;          // 双方血量
+let MAX_HP = 4000;            // 双方血量（随难度变化）
+
+// ── 难度 ──
+const DIFFS = {
+  normal: {                       // 普通：去掉技能，数值回到最初版本
+    label: '普通', desc: '无技能 · 最初数值',
+    hp: 2000, swing: 8, heavy: 14, ranged: 9, melee: 7,
+    skills: false, frenzyCd: 30, reload: 1.5, knockbackX: 1,
+    alwaysCharged: false, chargeSpeedX: 3, homing: 0, reflectable: true,
+  },
+  divine: {                       // 一丝神力：当前版本
+    label: '一丝神力', desc: '完整技能 · 当前数值',
+    hp: 4000, swing: 100, heavy: 200, ranged: 150, melee: 75,
+    skills: true, frenzyCd: 30, reload: 1.5, knockbackX: 1,
+    alwaysCharged: false, chargeSpeedX: 3, homing: 0, reflectable: true,
+  },
+  insane: {                       // 不可思议
+    label: '不可思议', desc: '狂化无冷却 · 每枪蓄能 · 2.5 秒装弹 · 击飞 ×15 · 4 倍速追踪弹',
+    hp: 4000, swing: 100, heavy: 200, ranged: 150, melee: 75,
+    skills: true, frenzyCd: 0, reload: 2.5, knockbackX: 15,
+    alwaysCharged: true, chargeSpeedX: 4, homing: 1.0, reflectable: false,
+  },
+};
+let CFG = DIFFS.divine;
+let gameStarted = false;
 const CW = 1280, CH = 720, GROUND = 640, FPS = 24;
 const WORLD = CW * 20;                 // 地图放大 20 倍
 const GRAV = 2300, JUMP_V = 1400;      // 跳起约 425px（原来的 3 倍多）
@@ -316,7 +371,7 @@ class Fighter{
 // 统一的伤害结算：打手「承受」、枪手「狂化吸血」、双方血量/硬直
 function applyDamage(t, dmg, dir){
   let real = dmg, log = '';
-  if (t === p1){                                   // 打手·承受：掷骰子
+  if (t === p1 && CFG.skills){                     // 打手·承受：掷骰子（普通难度关闭）
     if (Math.random() < SK.endureEven){            // 偶数：本次免伤，回一半血，并按原始伤害存池
       real = 0;
       const heal = dmg * 0.5;
@@ -363,7 +418,7 @@ function applyCounterDamage(t, amount, dir){
 
 // 谁倒下了
 function onDown(t){
-  if (t === p2 && p2.immortalCd <= 0 && p2.reviving <= 0){   // 枪手·不朽（冷却好了就能再触发）
+  if (CFG.skills && t === p2 && p2.immortalCd <= 0 && p2.reviving <= 0){   // 枪手·不朽（冷却好了就能再触发）
     p2.reviving = SK.reviveTime;
     p2.immortalCd = SK.immortalCd;
     p2.reviveFull = Math.random() < SK.immortalChance;
@@ -595,6 +650,31 @@ const COOL_DEF = {
        ['狂化', ()=> p2.frenzy ? 1 : 1 - Math.max(0, p2.frenzyCd) / SK.frenzyCd],
        ['蓄能', ()=> p2.chargeTotal > 0 ? 1 - Math.max(0, p2.chargeAt) / p2.chargeTotal : (p2.frenzy ? 0 : 0)] ],
 };
+function applyDifficulty(key){
+  const d = DIFFS[key] || DIFFS.divine;
+  CFG = d;
+  MAX_HP = d.hp;
+  DMG.brawlerSwing = d.swing; DMG.brawlerHeavy = d.heavy;
+  DMG.gunRanged = d.ranged;  DMG.gunMelee = d.melee;
+  SK.frenzyCd = d.frenzyCd;
+  p1.maxHp = p2.maxHp = MAX_HP;
+  p1.hp = p2.hp = MAX_HP;
+  resetRound();
+  gameStarted = true;
+  const st = document.getElementById('start');
+  if (st) st.style.display = 'none';
+  document.title = '枪手 vs 打手 · ' + d.label;
+}
+function setupStart(){
+  const st = document.getElementById('start');
+  if (!st) return;
+  st.querySelectorAll('button').forEach(b=>{
+    b.addEventListener('click', ()=>{ audioInit(); startExternalBgm(); applyDifficulty(b.dataset.d); });
+  });
+  const q = new URLSearchParams(location.search).get('difficulty');
+  if (q && DIFFS[q]) applyDifficulty(q);       // 便于测试/直连
+}
+
 function buildCools(){
   for (const side of [1, 2]){
     const box = document.getElementById('cool' + side);
@@ -896,22 +976,35 @@ function spawnBullet(f){
   }
   const L = Math.hypot(dx, dy) || 1;
   let sp = 640;
-  const pierce = (f === p2 && f.pierceShot);
+  let pierce = (f === p2 && f.pierceShot);
+  if (f === p2 && CFG.alwaysCharged){                 // 不可思议：普通射击也带蓄能
+    pierce = true;
+    f.pierceDmg = Math.round(DMG.gunChargeBase * Math.pow(3, (f.frenzyCount || 0) + 1));
+  }
   if (pierce){
     window.__pierceShots = (window.__pierceShots || 0) + 1;
-    sp *= 3;
+    sp *= CFG.chargeSpeedX;
     f.pierceVolley = (f.pierceVolley || 1) - 1;
     if (f.pierceVolley > 0) f.pierceNext = 0.5;        // 0.5 秒后补第二发
     else { f.pierceShot = false; f.pierceNext = 0; }
   }                    // 速度 ×3
   sfx('shot');
   bullets.push({x: mx, y: my, vx: dx/L*sp, vy: dy/L*sp, pierce, dmg: pierce ? f.pierceDmg : DMG.gunRanged,
+                homing: pierce ? CFG.homing : 0, noReflect: pierce && !CFG.reflectable,
                 dir: Math.sign(dx) || f.face, alive: true, t: 0, owner: 'gun'});
   sparks.push({x: mx + f.face*6, y: my, t: -0.05});
 }
 function updateBullets(dt){
   for (let i = bullets.length - 1; i >= 0; i--){
     const b = bullets[i];
+    if (b.homing > 0 && b.t < b.homing && b.owner === 'gun'){
+      const tx = p1.x, ty = GROUND - CHEST - (p1.y || 0);
+      const dx = tx - b.x, dy = ty - b.y, L = Math.hypot(dx, dy) || 1;
+      const sp = Math.hypot(b.vx, b.vy) || 1;
+      const turn = Math.min(1, dt * 6);                 // 追踪转向速度
+      b.vx += (dx / L * sp - b.vx) * turn;
+      b.vy += (dy / L * sp - b.vy) * turn;
+    }
     b.x += (b.vx !== undefined ? b.vx : b.dir * b.speed) * dt;
     b.y += (b.vy || 0) * dt;
     b.t += dt;
@@ -953,6 +1046,7 @@ function tryDeflect(){
   const u = p1.t / (SPRITES[p1.act].n / FPS);
   if (p1.state !== 'parry' || u < .15 || u > .75) return;
   for (const b of bullets){
+    if (b.noReflect) continue;                       // 不可思议：挡不下来
     if (b.owner === 'player' || Math.abs(b.x - p1.x) > 120) continue;
     if (Math.abs(b.y - (GROUND - 250 - (p1.y||0))) > 140) continue;
     b.owner = 'player'; b.dir = -b.dir; b.t = 0;
@@ -1088,7 +1182,7 @@ function checkHit(a, b, windows, dmg, rangeOk){
   sfx(b.hp <= 0 ? 'ko' : (combo >= 3 ? 'block' : 'hit'));
   if (a === p2 && p2.frenzy) dmg *= p2.dmgMult;
   let counterExtra = 0;
-  if (a === p1 && p1.counterCd <= 0 && p1.takenTotal > 0){   // 还击：冷却好了，下一击自动引爆
+  if (CFG.skills && a === p1 && p1.counterCd <= 0 && p1.takenTotal > 0){   // 还击
     counterExtra = Math.round(p1.takenTotal);
     p1.takenTotal = 0;
     p1.counterCd = SK.counterReady;
@@ -1471,7 +1565,7 @@ function step(dt){
 
     }
   }
-  if (!p2.frenzy && p2.reviving <= 0 && p2.frenzyCd <= 0 && p2.hp > 0){   // 冷却好了就放，不看血量
+  if (CFG.skills && !p2.frenzy && p2.reviving <= 0 && p2.frenzyCd <= 0 && p2.hp > 0){   // 冷却好了就放
     p2.frenzy = true;
     p2.dmgMult = 1; p2.chargeDmg = 0;
     p2.chargeAt = 1 + Math.random() * 3;              // 狂化：开始蓄能
@@ -1503,7 +1597,7 @@ function step(dt){
       showSkill('枪手 · 复活！', p2.reviveFull ? '满血归来' : '30% 血归来', '#b23cff');
       // 复活冲击波：把附近的人打飞 1000px
       if (p1.hp > 0 && Math.abs(p1.x - p2.x) < 520){
-        p1.knockT = 0.9; p1.knockDist = 1000;
+        p1.knockT = 0.9; p1.knockDist = 1000 * CFG.knockbackX;
         p1.knockDir = Math.sign(p1.x - p2.x) || 1;
         p1.knockX0 = p1.x;
         p1.set('leap', {force:true});
@@ -1612,7 +1706,7 @@ function step(dt){
 
   // 开完枪 → 蹲下换弹 1.5 秒（这段时间不能开枪、不能动）
   if (p2.bulletDone && /^fire/.test(p2.state) && !p2.reloading){
-    p2.reloading = p2.frenzy ? 0.7 : 1.5;        // 狂化：动得更勤
+    p2.reloading = CFG.reload;                    // 装弹时间（随难度）
     p2.set('reload', {force:true});
   }
   if (p2.reloading > 0){
@@ -2051,6 +2145,7 @@ tryExternalBgm();
 fitCanvas();
 setupFullscreen();
 buildCools();
+setupStart();
 
 preload(()=>{
   if (window.__started) return;
@@ -2077,6 +2172,21 @@ preload(()=>{
       window.__leapTest.maxDx = Math.max(window.__leapTest.maxDx, Math.abs(p2.x - p1.x));
       document.title = `LEAPTEST leaps=${window.__leapTest.leaps} moved=${(p2.leapMoved||0).toFixed(0)} maxY=${(window.__maxLeapY||0).toFixed(0)} shots=${window.__shotCount||0} p2=${p2.state}`;
     }, 200);
+  }
+  if (new URLSearchParams(location.search).get('test') === 'diff'){
+    setTimeout(()=>{
+      const out = [];
+      const q = new URLSearchParams(location.search).get('difficulty') || 'divine';
+      out.push('难度=' + CFG.label + ' 血=' + MAX_HP + ' 远程=' + DMG.gunRanged + ' 近战=' + DMG.gunMelee);
+      out.push('技能=' + (CFG.skills ? 1 : 0) + ' 狂化CD=' + SK.frenzyCd + ' 装弹=' + CFG.reload + ' 击飞倍率=' + CFG.knockbackX);
+      try {
+        bullets.length = 0; p2.x = p1.x + 400; p2.face = -1;
+        spawnBullet(p2);
+        const b = bullets[0];
+        out.push('子弹: dmg' + b.dmg + ' 速度' + Math.round(Math.hypot(b.vx, b.vy)) + ' 追踪' + (b.homing || 0) + ' 不可反弹' + (b.noReflect ? 1 : 0));
+      } catch(e){ out.push('ERR ' + e.message); }
+      document.title = 'DIFF ' + out.join(' | ');
+    }, 1000);
   }
   if (new URLSearchParams(location.search).get('test') === 'hud'){
     setTimeout(()=>{
