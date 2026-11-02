@@ -9,8 +9,18 @@
     font-family:"Hiragino Sans GB","PingFang SC",sans-serif;}
   #wrap{position:relative;width:100%;height:100vh;height:100dvh;display:flex;align-items:center;justify-content:center;overflow:hidden}
   canvas{background:#faf9f5;max-width:100%;max-height:100%;box-shadow:0 20px 60px #000a;border-radius:6px}
-  #hud{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:min(94%,1200px);
-    display:flex;gap:12px;align-items:center;color:#eee;font-size:13px;pointer-events:none}
+  #hud{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:min(95%,1240px);
+    display:flex;gap:12px;align-items:flex-start;color:#eee;font-size:13px;pointer-events:none}
+  #hud .side{flex:1;display:flex;flex-direction:column;gap:4px}
+  #hud .cools{display:flex;flex-direction:column;gap:3px}
+  #hud .cool{display:flex;align-items:center;gap:6px;font-size:10px;color:#ffffffcf;letter-spacing:.02em}
+  #hud .cool .lab{min-width:44px;text-align:left;opacity:.85}
+  #hud .side.right .cool{flex-direction:row-reverse}
+  #hud .side.right .cool .lab{text-align:right}
+  #hud .cool .trk{flex:1;height:5px;border-radius:3px;background:#ffffff26;overflow:hidden}
+  #hud .cool .trk i{display:block;height:100%;width:0%;background:#8ee0a0;transition:width .08s linear}
+  #hud .cool.ready .trk i{background:#6fd0ff}
+  #hud .cool.charge .trk i{background:#ff5a46}
   .bar{flex:1;height:16px;background:#0006;border:1px solid #0006;border-radius:8px;overflow:hidden}
   .bar i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#e05a4a,#f0a35e);transition:width .1s}
   .bar.right i{background:linear-gradient(90deg,#5ea8f0,#8ee0a0);float:right}
@@ -70,9 +80,15 @@
 <div id="wrap">
   <canvas id="cv" width="1280" height="720"></canvas>
   <div id="hud">
-    <div class="bar"><i id="hp1"></i></div>
-    <div style="min-width:150px;text-align:center;opacity:.85"><span id="score">0 : 0</span><br><span style="font-size:11px;opacity:.7">三局两胜</span></div>
-    <div class="bar right"><i id="hp2"></i></div>
+    <div class="side">
+      <div class="bar"><i id="hp1"></i></div>
+      <div class="cools" id="cool1"></div>
+    </div>
+    <div style="min-width:132px;text-align:center;opacity:.85"><span id="score">0 : 0</span><br><span style="font-size:11px;opacity:.7">三局两胜</span></div>
+    <div class="side right">
+      <div class="bar right"><i id="hp2"></i></div>
+      <div class="cools" id="cool2"></div>
+    </div>
   </div>
   <div id="msg"></div>
   <div id="loadbar"><i id="load"></i></div>
@@ -569,6 +585,44 @@ function setupFullscreen(){
     else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
   });
   document.addEventListener('fullscreenchange', ()=> setTimeout(fitCanvas, 120));
+}
+
+// 技能冷却条
+const COOL_DEF = {
+  1: [ ['还击', ()=> 1 - Math.max(0, p1.counterCd) / SK.counterReady],
+       ['反击池', ()=> p1.takenTotal / counterCap()] ],
+  2: [ ['不朽', ()=> 1 - Math.max(0, p2.immortalCd) / SK.immortalCd],
+       ['狂化', ()=> p2.frenzy ? 1 : 1 - Math.max(0, p2.frenzyCd) / SK.frenzyCd],
+       ['蓄能', ()=> p2.chargeTotal > 0 ? 1 - Math.max(0, p2.chargeAt) / p2.chargeTotal : (p2.frenzy ? 0 : 0)] ],
+};
+function buildCools(){
+  for (const side of [1, 2]){
+    const box = document.getElementById('cool' + side);
+    if (!box) continue;
+    box.innerHTML = '';
+    for (const [lab] of COOL_DEF[side]){
+      const row = document.createElement('div');
+      row.className = 'cool';
+      row.innerHTML = `<span class="lab">${lab}</span><span class="trk"><i></i></span>`;
+      box.appendChild(row);
+    }
+  }
+}
+function updateCools(){
+  for (const side of [1, 2]){
+    const box = document.getElementById('cool' + side);
+    if (!box) continue;
+    COOL_DEF[side].forEach(([lab, fn], i)=>{
+      const row = box.children[i];
+      if (!row) return;
+      let v = fn();
+      v = Math.max(0, Math.min(1, v || 0));
+      const fill = row.querySelector('i');
+      if (fill) fill.style.width = (v * 100).toFixed(0) + '%';
+      row.classList.toggle('ready', v >= 0.999);
+      row.classList.toggle('charge', lab === '蓄能' && p2.chargeAt > 0);
+    });
+  }
 }
 
 const bullets = [], sparks = [], dusts = [], floats = [];
@@ -1422,6 +1476,7 @@ function step(dt){
     p2.dmgMult = 1; p2.chargeDmg = 0;
     p2.chargeAt = 1 + Math.random() * 3;              // 狂化：开始蓄能
     p2.chargeAt = 1 + Math.random() * 3;           // 1~4 秒后发射
+    p2.chargeTotal = p2.chargeAt;
     p2.frenzyCount = (p2.frenzyCount || 0) + 1;    // 第几次狂化
     p2.pierceShot = false; p2.pierceVolley = 0; p2.pierceNext = 0;
     p2.frenzyLeft = SK.frenzyDur;
@@ -1982,6 +2037,7 @@ function loop(now){
     ctx.restore();
   }
   if (PROBE && !window.__probe){ window.__probe = 1; document.title = 'PROBE ok frames'; }
+  updateCools();
   document.getElementById('hp1').style.width = Math.max(0, p1.hp / p1.maxHp * 100) + '%';
   document.getElementById('hp2').style.width = Math.max(0, p2.hp / p2.maxHp * 100) + '%';
   } catch (e) {
@@ -1994,6 +2050,7 @@ function loop(now){
 tryExternalBgm();
 fitCanvas();
 setupFullscreen();
+buildCools();
 
 preload(()=>{
   if (window.__started) return;
@@ -2020,6 +2077,19 @@ preload(()=>{
       window.__leapTest.maxDx = Math.max(window.__leapTest.maxDx, Math.abs(p2.x - p1.x));
       document.title = `LEAPTEST leaps=${window.__leapTest.leaps} moved=${(p2.leapMoved||0).toFixed(0)} maxY=${(window.__maxLeapY||0).toFixed(0)} shots=${window.__shotCount||0} p2=${p2.state}`;
     }, 200);
+  }
+  if (new URLSearchParams(location.search).get('test') === 'hud'){
+    setTimeout(()=>{
+      const c1 = document.getElementById('cool1'), c2 = document.getElementById('cool2');
+      const out = ['左' + (c1 ? c1.children.length : -1) + '条', '右' + (c2 ? c2.children.length : -1) + '条'];
+      if (c2 && c2.children[2]){
+        p2.frenzy = true; p2.chargeAt = 1.5; p2.chargeTotal = 3; updateCools();
+        out.push('蓄能条宽' + c2.children[2].querySelector('i').style.width);
+        p2.chargeAt = 0.75; updateCools();
+        out.push('半程宽' + c2.children[2].querySelector('i').style.width);
+      }
+      document.title = 'HUD ' + out.join(' | ');
+    }, 900);
   }
   if (new URLSearchParams(location.search).get('test') === 'shield'){
     setTimeout(()=>{
