@@ -18,17 +18,21 @@
   #touch.on{display:block}
   #touch .pad{position:absolute;bottom:calc(18px + env(safe-area-inset-bottom));display:flex;gap:10px;pointer-events:auto}
   #touch .pad.left{left:calc(16px + env(safe-area-inset-left))}
-  #touch .pad.right{right:calc(16px + env(safe-area-inset-right));flex-wrap:wrap;justify-content:flex-end;max-width:200px}
+  #touch .pad.right{
+    right:calc(12px + env(safe-area-inset-right));
+    bottom:calc(12px + env(safe-area-inset-bottom));
+    display:flex;flex-direction:column;gap:10px;align-items:flex-end;max-width:none;z-index:3;
+  }
   #touch button{
-    width:64px;height:64px;border-radius:50%;border:2px solid #ffffff33;
+    width:58px;height:58px;border-radius:50%;border:2px solid #ffffff33;
     background:#00000055;color:#f2efe8;font-size:17px;font-family:inherit;
     -webkit-tap-highlight-color:transparent;backdrop-filter:blur(4px);touch-action:none;
   }
   #touch button:active{background:#ffffff33;transform:scale(.94)}
   #touch .stick{
-    position:absolute;left:calc(22px + env(safe-area-inset-left));
-    bottom:calc(22px + env(safe-area-inset-bottom));
-    width:168px;height:168px;pointer-events:auto;touch-action:none;
+    position:absolute;left:calc(12px + env(safe-area-inset-left));
+    bottom:calc(12px + env(safe-area-inset-bottom));
+    width:116px;height:116px;pointer-events:auto;touch-action:none;z-index:2;
   }
   #touch .stick .ring{
     position:absolute;inset:0;border-radius:50%;
@@ -36,14 +40,14 @@
     backdrop-filter:blur(3px);
   }
   #touch .stick .knob{
-    position:absolute;left:50%;top:50%;width:74px;height:74px;margin:-37px 0 0 -37px;
+    position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;
     border-radius:50%;background:#ffffff2b;border:2px solid #ffffff59;
     transition:transform .04s linear;
   }
   #touch .stick .knob.on{background:#ffffff4d}
   #touch .stick .hint{
-    position:absolute;left:50%;transform:translateX(-50%);bottom:-20px;white-space:nowrap;
-    font-size:11px;color:#ffffff8c;letter-spacing:.05em;
+    position:absolute;left:50%;transform:translateX(-50%);bottom:-15px;white-space:nowrap;
+    font-size:9px;color:#ffffff7a;letter-spacing:.02em;
   }
   @media (max-width:820px){
     #hud{top:6px;font-size:11px}
@@ -432,10 +436,10 @@ const isTouch = ('ontouchstart' in window) || Math.min(innerWidth, innerHeight) 
   const knob = document.getElementById('knob');
   if (stick && knob){
     let active = false, pid = null, sector = '';
-    const R = 58;                        // 摇杆最大位移
+    const R = ()=> stick.clientWidth * 0.36;   // 摇杆最大位移（按尺寸自适应）
     const setKnob = (dx, dy)=>{
-      const len = Math.hypot(dx, dy);
-      const k = len > R ? R / len : 1;
+      const len = Math.hypot(dx, dy), RL = R();
+      const k = len > RL ? RL / len : 1;
       knob.style.transform = `translate(${dx*k}px, ${dy*k}px)`;
     };
     const reset = ()=>{
@@ -448,9 +452,9 @@ const isTouch = ('ontouchstart' in window) || Math.min(innerWidth, innerHeight) 
       let dx = e.clientX - (r.left + r.width/2);
       let dy = e.clientY - (r.top + r.height/2);
       setKnob(dx, dy);
-      const len = Math.hypot(dx, dy);
+      const len = Math.hypot(dx, dy), RL = R();
       const nx = len > 0 ? dx / len : 0, ny = len > 0 ? dy / len : 0;
-      const mag = Math.min(1, len / R);
+      const mag = Math.min(1, len / RL);
       if (mag < 0.28){ keys['a'] = keys['d'] = false; sector = ''; return; }   // 死区
 
       // 左右移动（只在水平分量足够时）
