@@ -225,7 +225,7 @@ let gameStarted = false;
 let playerSide = 'brawler';     // 'brawler' | 'gunner'
 const CW = 1280, CH = 720, GROUND = 640, FPS = 24;
 const WORLD = CW * 20;                 // 地图放大 20 倍
-const GRAV = 2300, JUMP_V = 1400;      // 跳起约 425px（原来的 3 倍多）
+const GRAV = 2300, JUMP_V = 990;       // 跳起约 212px（原来的一半）
 const DPR = Math.min(2, window.devicePixelRatio || 1);
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
 cv.width = Math.round(CW * DPR); cv.height = Math.round(CH * DPR);
@@ -673,6 +673,14 @@ function applyDifficulty(key){
   if (st) st.style.display = 'none';
   document.title = '枪手 vs 打手 · ' + d.label;
 }
+function updateTip(){
+  const tip = document.getElementById('tip');
+  if (!tip) return;
+  tip.textContent = playerSide === 'gunner'
+    ? 'A/D 移动 · W 跳 · J 开火（蓄能就绪时发射蓄能弹）· Shift+J 枪托 · K 后跳 · K+W 大后跳 · L 格挡 · E 狂化 · F1 调试'
+    : 'A/D 移动 · Shift 跑 · W 跳（可二段）· J 挥击（Shift+J 重击）· K 闪避 · L 拨挡（反弹子弹）· F1 调试';
+}
+
 function setupStart(){
   const st = document.getElementById('start');
   if (!st) return;
@@ -681,6 +689,7 @@ function setupStart(){
     roleBtn.addEventListener('click', (e)=>{
       e.stopPropagation();
       playerSide = (playerSide === 'brawler') ? 'gunner' : 'brawler';
+      updateTip();
       roleBtn.innerHTML = playerSide === 'gunner'
         ? '<b>扮演：枪手</b><span>点一下切换成「扮演打手」</span>'
         : '<b>扮演：打手</b><span>点一下切换成「扮演枪手」</span>';
@@ -690,6 +699,7 @@ function setupStart(){
     b.addEventListener('click', ()=>{ audioInit(); startExternalBgm(); applyDifficulty(b.dataset.d); });
   });
   if (new URLSearchParams(location.search).get('role') === 'gunner') playerSide = 'gunner';
+  updateTip();
   const q = new URLSearchParams(location.search).get('difficulty');
   if (q && DIFFS[q]) applyDifficulty(q);       // 便于测试/直连
 }
@@ -1514,6 +1524,21 @@ function tryCounter(){
 }
 
 // ── 玩家操控枪手 ──
+function fireCharge(g = p2){
+  if (!g.chargeReady) return;
+  g.chargeReady = false;
+  const dmg = Math.round(DMG.gunChargeBase * Math.pow(3, (g.frenzyCount || 0) + 1));
+  const exp = Math.round(Math.log(dmg) / Math.log(3));
+  const expr = Array(exp).fill('3').join('×');
+  showSkill('发射！', `${expr} = ${dmg} × 2 发`, '#ff1f1f');
+  flash = Math.max(flash, .35); shake = Math.max(shake, 16);
+  g.pierceShot = true; g.pierceVolley = 2; g.pierceDmg = dmg;
+  spawnBullet(g);
+  g.frenzy = false; g.frenzyLeft = 0; g.frenzyT = 0;
+  g.dmgMult = 1; g.frenzyGlow = false;
+  g.frenzyCd = SK.frenzyCd;
+}
+
 function gunnerInput(dt){
   const g = p2, foe = p1;
   if (g.stun > 0 || g.reviving > 0) return;
@@ -1528,6 +1553,7 @@ function gunnerInput(dt){
 
   if (jumpReq){ jumpReq = false; tryJump(g); }
 
+  if (keys['j'] && g.chargeReady){ fireCharge(g); return; }   // 蓄能就绪：按攻击发射
   if (keys['j'] && keys['shift']){ g.set(Math.random() < 0.5 ? 'club' : 'club2', {force:true}); return; }
   if (keys['j'] && fireCd <= 0 && g.reloading <= 0){
     const dy = (GROUND - CHEST - (foe.y||0)) - (GROUND - CHEST - (g.y||0));
@@ -1538,13 +1564,21 @@ function gunnerInput(dt){
     fireCd = 1.2;
     return;
   }
-  // K：滑铲（带位移 + 无敌 + 低受击框）
-  if (keys['k'] && g.slideT <= 0 && g.state !== 'dodge'){
-    g.set('dodge', {force:true});
-    g.slideT = DODGE_TIME;
-    g.slideVx = g.face * (2 * DODGE_DIST / DODGE_TIME);
-    g.invuln = DODGE_INVULN;
-    sfx('land');
+  // K：小后跳（无位移射击）；K+W 或贴身 3 秒后：大后跳（带空中射击）
+  if ((keys['k'] || keyReq.q) && g.leapT <= 0 && g.state !== 'leap'){
+    const big = (keys['k'] && (keys['w'] || jumpReq)) || closeT >= 3 || keyReq.q;
+    keyReq.q = false;
+    if (big){
+      g.leapT = 0.9; g.leapDir = -g.face; g.leapX0 = g.x; g.leapShot = false;
+      g.leapDist = LEAP_DIST; g.leapShoot = true;
+      closeT = 0;
+      g.set('leap', {force:true});
+    } else {
+      g.leapT = 0.5; g.leapDir = -g.face; g.leapX0 = g.x; g.leapShot = true;
+      g.leapDist = 260; g.leapShoot = false;
+      g.set('leap', {force:true});
+    }
+    sfx('jump');
     return;
   }
   // L：格挡（持续整个动作）
@@ -1652,17 +1686,8 @@ function step(dt){
     p2.chargeWarn = Math.max(0, Math.min(1, p2.chargeAt));     // 最后 1 秒才显示
     if (p2.chargeAt <= 0){
       p2.chargeAt = 0; p2.chargeWarn = 0;
-      p2.pierceShot = true; p2.pierceVolley = 2; p2.pierceDmg = 0;
-      p2.pierceDmg = Math.round(DMG.gunChargeBase * Math.pow(3, p2.frenzyCount + 1));   // 第一次 9×3²=81，之后 ×3
-      const exp = Math.round(Math.log(p2.pierceDmg) / Math.log(3));
-      const expr = Array(exp).fill('3').join('×');
-      showSkill('发射！', `${expr} = ${p2.pierceDmg} × 2 发`, '#ff1f1f');
-      flash = Math.max(flash, .35); shake = Math.max(shake, 16);
-      spawnBullet(p2);
-      // 发射后立刻结束狂化，进入冷却
-      p2.frenzy = false; p2.frenzyLeft = 0; p2.frenzyT = 0;
-      p2.dmgMult = 1; p2.frenzyGlow = false;
-      p2.frenzyCd = SK.frenzyCd;
+      p2.chargeReady = true;                       // 就绪，等开火键
+      if (playerSide !== 'gunner') fireCharge(p2);  // AI 自己扣扳机
     }
   }
   // 蓄能弹第二发
@@ -1768,7 +1793,7 @@ function step(dt){
       if (keys['a']) mv--;
       if (keys['d']) mv++;
       if (mv !== 0){
-        const airSpd = 230 * (keys['shift'] ? 1.5 : 1);
+        const airSpd = 115 * (keys['shift'] ? 1.5 : 1);
         p1.x += mv * airSpd * dt;
         p1.face = mv;
       }
@@ -1833,11 +1858,11 @@ function step(dt){
   if (p2.leapT > 0){
     const u = 1 - p2.leapT / 0.9;
     const k = u < 0.5 ? 2*u*u : 1 - Math.pow(-2*u + 2, 2) / 2;   // easeInOut
-    p2.x = p2.leapX0 + p2.leapDir * LEAP_DIST * k;
+    p2.x = p2.leapX0 + p2.leapDir * (p2.leapDist || LEAP_DIST) * k;
     p2.leapMoved = Math.max(p2.leapMoved || 0, Math.abs(p2.x - p2.leapX0));
     p2.y = Math.sin(Math.PI * Math.min(1, u)) * LEAP_APEX;
     window.__maxLeapY = Math.max(window.__maxLeapY || 0, p2.y);
-    if (!p2.leapShot && u > 0.45){          // 空中开一枪
+    if (p2.leapShoot !== false && !p2.leapShot && u > 0.45){   // 只有大后跳会在空中开枪
       p2.leapShot = true;
       spawnBullet(p2);
       flash = Math.max(flash, .12); shake = Math.max(shake, 6);
@@ -2198,11 +2223,12 @@ function loop(now){
   step(dt);
 
   // ── 镜头：主角永远在画面正中（只有到地图边界才让出去）──
-  const focus = camLock ? p1.x : (p1.x + p2.x) / 2;
+  const focus = camLock ? (playerSide === 'gunner' ? p2.x : p1.x) : (p1.x + p2.x) / 2;
   const targetCam = Math.max(0, Math.min(WORLD - CW, focus - CW / 2));
   cam += (targetCam - cam) * Math.min(1, dt * 12);   // 跟得紧，几乎贴着中心
   // 高度：只看自己；死区 70px，落地后慢慢回
-  const tall = Math.max(p1.y || 0, (p2.y || 0) * 0.62);
+  const tall = playerSide === 'gunner' ? Math.max(p2.y || 0, (p1.y || 0) * 0.62)
+                                       : Math.max(p1.y || 0, (p2.y || 0) * 0.62);
   const targetY = Math.max(0, (tall - 70) * 0.55);
   camY += (targetY - camY) * Math.min(1, dt * (targetY > camY ? 6 : 3));
 
@@ -2377,7 +2403,8 @@ preload(()=>{
         resetRound(); over = false;
         { const m = ME(); m.x = 8000; m.state = 'idle'; m.slideT = 0; m.stun = 0;
           const sx = m.x; keys['k'] = true; sim(3); keys['k'] = false; sim(30);
-          ok('slide', Math.abs(m.x - sx) > 300, 'd' + Math.round(Math.abs(m.x - sx))); }
+          const need = playerSide === 'gunner' ? 200 : 300;   // 枪手按 K 是后跳
+          ok('slide', Math.abs(m.x - sx) > need, 'd' + Math.round(Math.abs(m.x - sx))); }
 
         // 4 反击池封顶
         resetRound(); over = false;
