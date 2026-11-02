@@ -694,9 +694,7 @@ function updateTip(){
   const tip = document.getElementById('tip');
   if (!tip) return;
   tip.textContent = playerSide === 'gunner'
-    ? (CFG.slideDodge
-      ? 'A/D 移动 · W 跳 · J 开火 · U 枪托 · K 滑铲 · L 格挡 · F1 调试'
-      : 'A/D 移动 · W 跳 · J 开火（蓄能就绪时发射）· U 枪托 · K 后跳 · K+W 大后跳 · L 格挡 · E 狂化 · F1 调试')
+    ? 'A/D 移动 · W 跳 · J 开火（蓄能就绪时发射）· U 枪托 · K 滑铲 · K+W 大后跳 · L 格挡 · E 狂化 · F1 调试'
     : 'A/D 移动 · Shift 跑 · W 跳（可二段）· J 挥击（Shift+J 重击）· K 闪避 · L 拨挡（反弹子弹）· F1 调试';
 }
 
@@ -1588,28 +1586,23 @@ function gunnerInput(dt){
     return;
   }
   // K：小后跳（无位移射击）；K+W 或贴身 3 秒后：大后跳（带空中射击）
-  if (keys['k'] && CFG.slideDodge && g.slideT <= 0 && g.state !== 'leap'){   // 普通难度：滑铲
+  // K：滑铲（默认）；K+W / Q / 贴身 3 秒 → 大后跳（空中开枪）
+  if ((keys['k'] || keyReq.q) && g.slideT <= 0 && g.leapT <= 0 && g.state !== 'leap'){
+    const wantBig = keyReq.q || (keys['k'] && (keys['w'] || jumpReq)) || closeT >= 3;
+    if (wantBig){
+      keyReq.q = false;
+      g.leapT = 0.9; g.leapDir = -g.face; g.leapX0 = g.x; g.leapShot = false;
+      g.leapDist = LEAP_DIST; g.leapShoot = true;
+      closeT = 0;
+      g.set('leap', {force:true});
+      sfx('jump');
+      return;
+    }
     g.set('slide', {force:true});
     g.slideT = DODGE_TIME;
     g.slideVx = g.face * (2 * DODGE_DIST / DODGE_TIME);
     g.invuln = DODGE_INVULN;
     sfx('land');
-    return;
-  }
-  if ((keys['k'] || keyReq.q) && !CFG.slideDodge && g.leapT <= 0 && g.state !== 'leap'){
-    const big = (keys['k'] && (keys['w'] || jumpReq)) || closeT >= 3 || keyReq.q;
-    keyReq.q = false;
-    if (big){
-      g.leapT = 0.9; g.leapDir = -g.face; g.leapX0 = g.x; g.leapShot = false;
-      g.leapDist = LEAP_DIST; g.leapShoot = true;
-      closeT = 0;
-      g.set('leap', {force:true});
-    } else {
-      g.leapT = 0.5; g.leapDir = -g.face; g.leapX0 = g.x; g.leapShot = true;
-      g.leapDist = 260; g.leapShoot = false;
-      g.set('leap', {force:true});
-    }
-    sfx('jump');
     return;
   }
   // L：格挡（持续整个动作）
@@ -2544,9 +2537,9 @@ preload(()=>{
 
         // 9.8 大后跳：贴身计时解锁
         { resetRound(); over = false; closeT = 3.2;
-          const g = p2; g.leapT = 0; keys['k'] = true; keys['w'] = false;
+          const g = p2; g.leapT = 0; keys['k'] = true; keys['w'] = true;
           if (playerSide === 'gunner'){ for (let i = 0; i < 2; i++) step(0.02); }
-          keys['k'] = false;
+          keys['k'] = false; keys['w'] = false;
           ok('bigleap', playerSide !== 'gunner' || CFG.slideDodge || g.leapT > 0 || Math.abs(g.leapDist || 0) > 400,
              'lt' + (g.leapT||0).toFixed(2) + ',d' + (g.leapDist||0)); }
 
@@ -2571,16 +2564,17 @@ preload(()=>{
         // 9.95 最后的反击：不会立刻结束回合
         if (CFG.brawlerSkills && playerSide === 'gunner'){
           resetRound(); over = false; gameStarted = true;
-          p1.lastStand = false; p1.lastStandT = 0; p1.takenTotal = 0; p1.hp = 5;
-          applyDamage(p1, 50, 1);
+          p1.lastStand = false; p1.lastStandT = 0; p1.takenTotal = 0; p1.hp = 0; p1.invuln = 0;
+          onDown(p1);                                  // 直接触发最后的反击
+          const entered = p1.lastStand && p1.hp >= 1;
           for (let i = 0; i < 5; i++) step(0.02);
-          ok('lastStand', !over && p1.lastStand && p1.hp >= 1,
-             `over${over?1:0},hp${Math.round(p1.hp)},ls${p1.lastStand?1:0}`);
+          ok('lastStand', entered && !over && p1.lastStandT > 0,
+             `ls${entered?1:0},over${over?1:0},t${(p1.lastStandT||0).toFixed(0)}`);
           p1.lastStand = false; p1.lastStandT = 0;
         }
 
         // 9.96 滑铲状态不被下一帧覆盖
-        if (playerSide === 'gunner' && CFG.slideDodge){
+        if (playerSide === 'gunner'){
           resetRound(); over = false; p2.state = 'idle'; p2.slideT = 0;
           keys['k'] = true; step(0.02); keys['k'] = false;
           const st1 = p2.state; step(0.02);
