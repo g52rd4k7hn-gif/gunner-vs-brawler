@@ -660,6 +660,9 @@ function setupFullscreen(){
 }
 
 // 技能冷却条
+function forceCdMax(){
+  return CFG.brawlerSkills ? (p1.lastStand ? 5 : 15) : 25;
+}
 function coolDefs(side){
   if (side === 2) return [
     ['不朽', ()=> 1 - Math.max(0, p2.immortalCd) / SK.immortalCd],
@@ -671,7 +674,7 @@ function coolDefs(side){
     ['反击池', ()=> p1.takenTotal / counterCap()],
   ];
   if (CFG.brawlerSkills || CFG.brawlerSkillsWeak)
-    arr.push(['全力', ()=> p1.forcePhase ? 0 : 1 - Math.max(0, p1.forceCd) / 10]);
+    arr.push(['全力', ()=> p1.forcePhase ? 0 : 1 - Math.max(0, p1.forceCd) / forceCdMax()]);
   if (CFG.brawlerSkills)
     arr.push(['不倒', ()=> p1.lastStand ? Math.max(0, 1 - p1.lastStandT / 30) : 0]);
   return arr;
@@ -1613,7 +1616,7 @@ function aiBrawler(dt){
     f.pullSpeed = insaneForce ? 1200 : 650;          // 吸附速度（神力 650 / 不可 1200）
     f.pullDur   = insaneForce ? 99 : (playerSide === 'gunner' ? 8 : 7);   // 吸附时长（不可=吸到为止）
     f.forceT = f.forceWarn;
-    f.forceCd = f.lastStand ? 5 : 10;      // 不倒期间 5 秒一次
+    f.forceCd = CFG.brawlerSkills ? (f.lastStand ? 5 : 15) : 25;   // 不可 15s（不倒 5s）/ 神力 25s
     f.set('pull', {force:true});
     showSkill('打手 · 全力（预警）', CFG.brawlerSkills ? '即将吸附！' : '5 秒后吸附', '#a050ff');
     sfx('charge');
@@ -2590,9 +2593,10 @@ preload(()=>{
           resetRound(); over = false;
           p1.takenTotal = 800; p1.forceCd = 0; p1.forcePhase = 0;
           p2.x = p1.x + 900; p2.hp = p2.maxHp; p2.invuln = 0;
-          const x0 = p2.x; let warnSeen = false, pullSeen = false;
+          const x0 = p2.x; let warnSeen = false, pullSeen = false, cd0 = -1;
           for (let i = 0; i < 900; i++){
             step(0.02);
+            if (p1.forcePhase === 1 && cd0 < 0) cd0 = p1.forceCd;
             if (p1.forcePhase === 1) warnSeen = true;
             if (p1.forcePhase === 2) pullSeen = true;
             if (p1.forcePhase === 0 && warnSeen && pullSeen) break;
@@ -2607,6 +2611,7 @@ preload(()=>{
             for (let i = 0; i < 4; i++) step(0.02);
             const dealt = hpBefore - p2.hp;
             ok('forceDmg' + Math.round(dealt) + 'vs25%' + Math.round(p2.maxHp * 0.25), dealt > 0); }
+          ok('forceCd25', Math.abs(cd0 - 25) < 1.2, 'cd' + cd0.toFixed(1));
           ok('forceWeak', warnSeen && pullSeen && p2.hp < p2.maxHp,
              `warn${warnSeen?1:0},pull${pullSeen?1:0},d${Math.round(Math.abs(p2.x-x0))},hp${Math.round(p2.hp)}`);
         }
