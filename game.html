@@ -25,6 +25,26 @@
     -webkit-tap-highlight-color:transparent;backdrop-filter:blur(4px);touch-action:none;
   }
   #touch button:active{background:#ffffff33;transform:scale(.94)}
+  #touch .stick{
+    position:absolute;left:calc(22px + env(safe-area-inset-left));
+    bottom:calc(22px + env(safe-area-inset-bottom));
+    width:168px;height:168px;pointer-events:auto;touch-action:none;
+  }
+  #touch .stick .ring{
+    position:absolute;inset:0;border-radius:50%;
+    border:2px solid #ffffff2e;background:radial-gradient(circle,#0000003d,#0000001a 70%);
+    backdrop-filter:blur(3px);
+  }
+  #touch .stick .knob{
+    position:absolute;left:50%;top:50%;width:74px;height:74px;margin:-37px 0 0 -37px;
+    border-radius:50%;background:#ffffff2b;border:2px solid #ffffff59;
+    transition:transform .04s linear;
+  }
+  #touch .stick .knob.on{background:#ffffff4d}
+  #touch .stick .hint{
+    position:absolute;left:50%;transform:translateX(-50%);bottom:-20px;white-space:nowrap;
+    font-size:11px;color:#ffffff8c;letter-spacing:.05em;
+  }
   @media (max-width:820px){
     #hud{top:6px;font-size:11px}
     .bar{height:11px}
@@ -54,14 +74,13 @@
   <div id="loadbar"><i id="load"></i></div>
   <div id="rotate">请横屏游玩<br><span style="font-size:13px;opacity:.65">横过来画面更大、按键更好按</span></div>
   <div id="touch">
-    <div class="pad left">
-      <button data-k="a">◀</button>
-      <button data-k="d">▶</button>
+    <div class="stick" id="stick">
+      <div class="ring"></div>
+      <div class="knob" id="knob"></div>
+      <div class="hint">↑ 跳 · ↓ 滑铲 · ←→ 移动</div>
     </div>
     <div class="pad right">
       <button data-k="l">挡</button>
-      <button data-k="k">闪</button>
-      <button data-k="jump">跳</button>
       <button data-k="heavy">重</button>
       <button data-k="j">打</button>
     </div>
@@ -408,6 +427,71 @@ const isTouch = ('ontouchstart' in window) || Math.min(innerWidth, innerHeight) 
     btn.addEventListener('pointercancel', up);
     btn.addEventListener('pointerleave', up);
   };
+  // ── 虚拟摇杆 ──
+  const stick = document.getElementById('stick');
+  const knob = document.getElementById('knob');
+  if (stick && knob){
+    let active = false, pid = null, sector = '';
+    const R = 58;                        // 摇杆最大位移
+    const setKnob = (dx, dy)=>{
+      const len = Math.hypot(dx, dy);
+      const k = len > R ? R / len : 1;
+      knob.style.transform = `translate(${dx*k}px, ${dy*k}px)`;
+    };
+    const reset = ()=>{
+      active = false; pid = null; sector = '';
+      knob.style.transform = 'translate(0,0)'; knob.classList.remove('on');
+      keys['a'] = keys['d'] = false;
+    };
+    const handle = (e)=>{
+      const r = stick.getBoundingClientRect();
+      let dx = e.clientX - (r.left + r.width/2);
+      let dy = e.clientY - (r.top + r.height/2);
+      setKnob(dx, dy);
+      const len = Math.hypot(dx, dy);
+      const nx = len > 0 ? dx / len : 0, ny = len > 0 ? dy / len : 0;
+      const mag = Math.min(1, len / R);
+      if (mag < 0.28){ keys['a'] = keys['d'] = false; sector = ''; return; }   // 死区
+
+      // 左右移动（只在水平分量足够时）
+      keys['a'] = nx < -0.35;
+      keys['d'] = nx >  0.35;
+
+      let now = 'mid';
+      if (ny < -0.55) now = 'up';           // ↑ 跳
+      else if (ny > 0.55) now = 'down';     // ↓ 滑铲
+
+      if (now !== sector){
+        sector = now;
+        if (now === 'up') jumpReq = true;                        // 上 / 左上 / 右上 → 跳（同时保留左右移动）
+        if (now === 'down'){
+          if (['idle','walk','run'].includes(p1.state)){
+            if (Math.abs(nx) > 0.35) p1.face = nx < 0 ? -1 : 1;  // 左下/右下 → 朝对应方向滑铲
+            p1.set('dodge', {force:true});
+            p1.slideT = DODGE_TIME;
+            p1.slideVx = p1.face * (2 * DODGE_DIST / DODGE_TIME);
+            p1.invuln = DODGE_INVULN;
+            sfx('land');
+          }
+        }
+      }
+    };
+    stick.addEventListener('pointerdown', e=>{
+      e.preventDefault(); audioInit(); active = true; pid = e.pointerId;
+      knob.classList.add('on');
+      try { stick.setPointerCapture(pid); } catch(err){}
+      handle(e);
+    });
+    stick.addEventListener('pointermove', e=>{
+      if (!active || e.pointerId !== pid) return;
+      e.preventDefault(); handle(e);
+    });
+    const up = e=>{ if (active && (pid === null || e.pointerId === pid)){ e.preventDefault(); reset(); } };
+    stick.addEventListener('pointerup', up);
+    stick.addEventListener('pointercancel', up);
+    stick.addEventListener('pointerleave', e=>{ if (active && e.buttons === 0) up(e); });
+  }
+
   pad.querySelectorAll('button').forEach(btn=>{
     const k = btn.dataset.k;
     if (k === 'a' || k === 'd'){
@@ -1770,6 +1854,33 @@ preload(()=>{
       window.__leapTest.maxDx = Math.max(window.__leapTest.maxDx, Math.abs(p2.x - p1.x));
       document.title = `LEAPTEST leaps=${window.__leapTest.leaps} moved=${(p2.leapMoved||0).toFixed(0)} maxY=${(window.__maxLeapY||0).toFixed(0)} shots=${window.__shotCount||0} p2=${p2.state}`;
     }, 200);
+  }
+  if (new URLSearchParams(location.search).get('test') === 'stick'){
+    setTimeout(()=>{
+      const st = document.getElementById('stick');
+      const fire = (type, dx, dy)=>{
+        const r = st.getBoundingClientRect();
+        st.dispatchEvent(new PointerEvent(type, {
+          clientX: r.left + r.width/2 + dx, clientY: r.top + r.height/2 + dy,
+          pointerId: 1, bubbles: true, buttons: 1, pointerType: 'touch'
+        }));
+      };
+      const out = [];
+      p1.state = 'idle'; p1.slideT = 0; jumpReq = false; keys['a'] = keys['d'] = false;
+      fire('pointerdown', 0, -60);
+      out.push('上→' + (jumpReq ? '跳' : '无') + '/a' + (keys['a']?1:0) + 'd' + (keys['d']?1:0));
+      jumpReq = false;
+      fire('pointermove', -50, -30);
+      out.push('左上→跳' + (jumpReq ? 1 : 0) + '/a' + (keys['a']?1:0));
+      jumpReq = false;
+      fire('pointermove', 55, 0);
+      out.push('右→a' + (keys['a']?1:0) + 'd' + (keys['d']?1:0));
+      fire('pointermove', 45, 55);
+      out.push('右下→滑' + (p1.state === 'dodge' ? 1 : 0) + '脸' + p1.face);
+      fire('pointerup', 45, 55);
+      out.push('松手→a' + (keys['a']?1:0) + 'd' + (keys['d']?1:0));
+      document.title = 'STICK ' + out.join(' | ');
+    }, 800);
   }
   if (new URLSearchParams(location.search).get('test') === 'push'){
     p1.x = p2.x - 200; keys['d'] = true;          // 不冻结，测真实推挤
