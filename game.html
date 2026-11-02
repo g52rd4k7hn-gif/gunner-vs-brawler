@@ -659,66 +659,21 @@ function setupFullscreen(){
 }
 
 // 技能冷却条
-const COOL_DEF = {
-  1: [ ['还击', ()=> 1 - Math.max(0, p1.counterCd) / SK.counterReady],
-       ['反击池', ()=> p1.takenTotal / counterCap()] ],
-  2: [ ['不朽', ()=> 1 - Math.max(0, p2.immortalCd) / SK.immortalCd],
-       ['狂化', ()=> p2.frenzy ? 1 : 1 - Math.max(0, p2.frenzyCd) / SK.frenzyCd],
-       ['蓄能', ()=> p2.chargeReady ? 1 : (p2.chargeTotal > 0 ? 1 - Math.max(0, p2.chargeAt) / p2.chargeTotal : 0)] ],
-};
-function applyDifficulty(key){
-  const d = DIFFS[key] || DIFFS.divine;
-  CFG = d;
-  MAX_HP = d.hp;
-  DMG.brawlerSwing = d.swing; DMG.brawlerHeavy = d.heavy;
-  DMG.gunRanged = d.ranged;  DMG.gunMelee = d.melee;
-  SK.frenzyCd = d.frenzyCd;
-  if (playerSide === 'gunner'){                       // 玩家操控枪手：自身数值走一丝神力
-    const d2 = DIFFS.divine;
-    MAX_HP = Math.max(MAX_HP, d2.hp);
-    CFG = Object.assign({}, d, { reload: d2.reload, alwaysCharged: false, chargeSpeedX: d2.chargeSpeedX });
-  }
-  p1.maxHp = p2.maxHp = MAX_HP;
-  p1.hp = p2.hp = MAX_HP;
-  resetRound();
-  gameStarted = true;
-  const st = document.getElementById('start');
-  if (st) st.style.display = 'none';
-  document.title = '枪手 vs 打手 · ' + d.label;
-}
-function updateTip(){
-  const pad = document.getElementById('touch');
-  if (pad) pad.querySelectorAll('.gunonly').forEach(b=>{
-    b.style.display = playerSide === 'gunner' ? '' : 'none';
-  });
-  const tip = document.getElementById('tip');
-  if (!tip) return;
-  tip.textContent = playerSide === 'gunner'
-    ? 'A/D 移动 · W 跳 · J 开火（蓄能就绪时发射）· U 枪托 · K 滑铲 · K+W 大后跳 · L 格挡 · E 狂化 · F1 调试'
-    : 'A/D 移动 · Shift 跑 · W 跳（可二段）· J 挥击（Shift+J 重击）· K 闪避 · L 拨挡（反弹子弹）· F1 调试';
-}
-
-function setupStart(){
-  const st = document.getElementById('start');
-  if (!st) return;
-  const roleBtn = document.getElementById('roleBtn');
-  if (roleBtn){
-    roleBtn.addEventListener('click', (e)=>{
-      e.stopPropagation();
-      playerSide = (playerSide === 'brawler') ? 'gunner' : 'brawler';
-      updateTip();
-      roleBtn.innerHTML = playerSide === 'gunner'
-        ? '<b>扮演：枪手</b><span>点一下切换成「扮演打手」</span>'
-        : '<b>扮演：打手</b><span>点一下切换成「扮演枪手」</span>';
-    });
-  }
-  st.querySelectorAll('button[data-d]').forEach(b=>{
-    b.addEventListener('click', ()=>{ audioInit(); startExternalBgm(); applyDifficulty(b.dataset.d); });
-  });
-  if (new URLSearchParams(location.search).get('role') === 'gunner') playerSide = 'gunner';
-  updateTip();
-  const q = new URLSearchParams(location.search).get('difficulty');
-  if (q && DIFFS[q]) applyDifficulty(q);       // 便于测试/直连
+function coolDefs(side){
+  if (side === 2) return [
+    ['不朽', ()=> 1 - Math.max(0, p2.immortalCd) / SK.immortalCd],
+    ['狂化', ()=> p2.frenzy ? 1 : 1 - Math.max(0, p2.frenzyCd) / SK.frenzyCd],
+    ['蓄能', ()=> p2.chargeReady ? 1 : (p2.chargeTotal > 0 ? 1 - Math.max(0, p2.chargeAt) / p2.chargeTotal : 0)],
+  ];
+  const arr = [
+    ['还击', ()=> 1 - Math.max(0, p1.counterCd) / SK.counterReady],
+    ['反击池', ()=> p1.takenTotal / counterCap()],
+  ];
+  if (CFG.brawlerSkills || CFG.brawlerSkillsWeak)
+    arr.push(['全力', ()=> p1.forcePhase ? 0 : 1 - Math.max(0, p1.forceCd) / 10]);
+  if (CFG.brawlerSkills)
+    arr.push(['不倒', ()=> p1.lastStand ? Math.max(0, 1 - p1.lastStandT / 30) : 0]);
+  return arr;
 }
 
 function buildCools(){
@@ -726,7 +681,7 @@ function buildCools(){
     const box = document.getElementById('cool' + side);
     if (!box) continue;
     box.innerHTML = '';
-    for (const [lab] of COOL_DEF[side]){
+    for (const [lab] of coolDefs(side)){
       const row = document.createElement('div');
       row.className = 'cool';
       row.innerHTML = `<span class="trk"><i></i></span><span class="lab">${lab}</span>`;
@@ -738,7 +693,7 @@ function updateCools(){
   for (const side of [1, 2]){
     const box = document.getElementById('cool' + side);
     if (!box) continue;
-    COOL_DEF[side].forEach(([lab, fn], i)=>{
+    coolDefs(side).forEach(([lab, fn], i)=>{
       const row = box.children[i];
       if (!row) return;
       let v = fn();
@@ -753,6 +708,8 @@ function updateCools(){
       else if (lab === '反击池') lb.textContent = `反击池 ${Math.round(p1.takenTotal)}/${counterCap()}`;
       else if (lab === '不朽')  lb.textContent = p2.immortalCd > 0 ? `不朽 ${Math.ceil(p2.immortalCd)}s` : '不朽 就绪';
       else if (lab === '狂化')  lb.textContent = p2.frenzy ? '狂化中' : (p2.frenzyCd > 0 ? `狂化 ${Math.ceil(p2.frenzyCd)}s` : '狂化 就绪');
+      else if (lab === '全力')  lb.textContent = p1.forcePhase ? '全力中…' : (p1.forceCd > 0 ? `全力 ${p1.forceCd.toFixed(1)}s` : '全力 就绪');
+      else if (lab === '不倒')  lb.textContent = p1.lastStand ? `不倒 ${Math.ceil(p1.lastStandT)}s` : '不倒 未触发';
       else if (lab === '蓄能')  lb.textContent = p2.chargeReady ? '蓄能 就绪（按 J 发射）'
         : (p2.chargeAt > 0 ? `蓄能预备 ${p2.chargeAt.toFixed(1)}s` : (p2.frenzy ? '蓄能 待定' : '蓄能 无'));
     });
@@ -2059,6 +2016,25 @@ function drawFighter(f){
     ctx.stroke();
     ctx.restore();
   }
+  if (f === p1 && f.lastStand && f.lastStandT > 0){   // 最后的反击：橙色光环 + 火星 + 倒计时
+    const cx = f.x - cam, cy = GROUND - CHEST - (f.y||0) + camY;
+    const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 180);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createRadialGradient(cx, cy + 40, 10, cx, cy + 40, 150);
+    g.addColorStop(0, `rgba(255,120,30,${0.35 * pulse})`);
+    g.addColorStop(1, 'rgba(255,60,0,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy + 40, 150, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    for (let i = 0; i < 5; i++){
+      const t = ((performance.now() / 900) + i / 5) % 1;
+      const px = cx + Math.sin(t * 9 + i) * 46, py = cy + 90 - t * 210;
+      ctx.fillStyle = `rgba(255,150,40,${0.85 * (1 - t)})`;
+      ctx.beginPath(); ctx.arc(px, py, 2.6 * (1 - t * 0.6), 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = 'rgba(255,170,60,.95)'; ctx.font = 'bold 15px Menlo'; ctx.textAlign = 'center';
+    ctx.fillText('不倒 ' + Math.ceil(f.lastStandT) + 's', cx, cy - 118);
+  }
   if (f === p1 && f.forcePhase === 1){          // 全力预警：扩散紫环 + 倒计时
     const cx = f.x - cam, cy = GROUND - CHEST - (f.y||0) + camY;
     for (let i = 0; i < 2; i++){
@@ -2417,6 +2393,61 @@ function loop(now){
   requestAnimationFrame(loop);
 }
 
+function applyDifficulty(key){
+  const d = DIFFS[key] || DIFFS.divine;
+  CFG = d;
+  MAX_HP = d.hp;
+  DMG.brawlerSwing = d.swing; DMG.brawlerHeavy = d.heavy;
+  DMG.gunRanged = d.ranged;  DMG.gunMelee = d.melee;
+  SK.frenzyCd = d.frenzyCd;
+  if (playerSide === 'gunner'){                       // 玩家操控枪手：自身数值走一丝神力
+    const d2 = DIFFS.divine;
+    MAX_HP = Math.max(MAX_HP, d2.hp);
+    CFG = Object.assign({}, d, { reload: d2.reload, alwaysCharged: false, chargeSpeedX: d2.chargeSpeedX });
+  }
+  p1.maxHp = p2.maxHp = MAX_HP;
+  p1.hp = p2.hp = MAX_HP;
+  resetRound();
+  buildCools();
+  gameStarted = true;
+  const st = document.getElementById('start');
+  if (st) st.style.display = 'none';
+  document.title = '枪手 vs 打手 · ' + d.label;
+}
+
+function updateTip(){
+  const pad = document.getElementById('touch');
+  if (pad) pad.querySelectorAll('.gunonly').forEach(b=>{ b.style.display = playerSide === 'gunner' ? '' : 'none'; });
+  const tip = document.getElementById('tip');
+  if (!tip) return;
+  tip.textContent = playerSide === 'gunner'
+    ? 'A/D 移动 · W 跳 · J 开火（蓄能就绪时发射）· U 枪托 · K 滑铲 · K+W 大后跳 · L 格挡 · E 狂化 · F1 调试'
+    : 'A/D 移动 · Shift 跑 · W 跳（可二段）· J 挥击（Shift+J 重击）· K 闪避 · L 拨挡（反弹子弹）· F1 调试';
+}
+
+function setupStart(){
+  const st = document.getElementById('start');
+  if (!st) return;
+  const roleBtn = document.getElementById('roleBtn');
+  if (roleBtn){
+    roleBtn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      playerSide = (playerSide === 'brawler') ? 'gunner' : 'brawler';
+      updateTip();
+      roleBtn.innerHTML = playerSide === 'gunner'
+        ? '<b>扮演：枪手</b><span>点一下切换成「扮演打手」</span>'
+        : '<b>扮演：打手</b><span>点一下切换成「扮演枪手」</span>';
+    });
+  }
+  st.querySelectorAll('button[data-d]').forEach(b=>{
+    b.addEventListener('click', ()=>{ audioInit(); startExternalBgm(); applyDifficulty(b.dataset.d); });
+  });
+  if (new URLSearchParams(location.search).get('role') === 'gunner') playerSide = 'gunner';
+  const q = new URLSearchParams(location.search).get('difficulty');
+  updateTip();
+  if (q && DIFFS[q]) applyDifficulty(q);
+}
+
 tryExternalBgm();
 fitCanvas();
 setupFullscreen();
@@ -2581,6 +2612,15 @@ preload(()=>{
           ok('lastStand', entered && !over && p1.lastStandT > 0,
              `ls${entered?1:0},over${over?1:0},t${(p1.lastStandT||0).toFixed(0)}`);
           p1.lastStand = false; p1.lastStandT = 0;
+        }
+
+        // 9.965 冷却条：全力/不倒 是否出现
+        if (playerSide === 'gunner' && (CFG.brawlerSkills || CFG.brawlerSkillsWeak)){
+          const c1 = document.getElementById('cool1');
+          const labs = c1 ? [...c1.children].map(r => r.querySelector('.lab').textContent.slice(0,2)) : [];
+          const hasForce = labs.some(t => t === '全力');
+          const hasStand = labs.some(t => t === '不倒');
+          ok('coolBars', hasForce && (hasStand || !CFG.brawlerSkills), labs.join('/'));
         }
 
         // 9.96 滑铲状态不被下一帧覆盖
