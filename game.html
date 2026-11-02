@@ -7,14 +7,14 @@
 <style>
   html,body{margin:0;height:100%;background:#111;overflow:hidden;touch-action:none;overscroll-behavior:none;-webkit-user-select:none;user-select:none;
     font-family:"Hiragino Sans GB","PingFang SC",sans-serif;}
-  #wrap{position:relative;width:100vw;height:100vh;display:flex;align-items:center;justify-content:center}
+  #wrap{position:relative;width:100%;height:100vh;height:100dvh;display:flex;align-items:center;justify-content:center;overflow:hidden}
   canvas{background:#faf9f5;max-width:100%;max-height:100%;box-shadow:0 20px 60px #000a;border-radius:6px}
   #hud{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:min(94%,1200px);
     display:flex;gap:12px;align-items:center;color:#eee;font-size:13px;pointer-events:none}
   .bar{flex:1;height:16px;background:#0006;border:1px solid #0006;border-radius:8px;overflow:hidden}
   .bar i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#e05a4a,#f0a35e);transition:width .1s}
   .bar.right i{background:linear-gradient(90deg,#5ea8f0,#8ee0a0);float:right}
-  #touch{position:absolute;inset:0;pointer-events:none;display:none}
+  #touch{position:absolute;inset:0;pointer-events:none;display:none;overflow:hidden}
   #touch.on{display:block}
   #touch .pad{position:absolute;bottom:calc(18px + env(safe-area-inset-bottom));display:flex;gap:10px;pointer-events:auto}
   #touch .pad.left{left:calc(16px + env(safe-area-inset-left))}
@@ -89,6 +89,9 @@
       <button data-k="j">打</button>
     </div>
   </div>
+  <button id="fs" style="position:absolute;right:10px;top:8px;z-index:9;display:none;
+    padding:6px 10px;border-radius:8px;border:1px solid #ffffff2e;background:#00000059;
+    color:#fff;font-size:12px;font-family:inherit">⛶</button>
   <div id="tip">A/D 移动 · Shift 跑 · W 跳（可二段） · J 挥击（Shift+J 重击） · K 闪避 · L 拨挡（反弹子弹） · F1 调试</div>
 </div>
 <script src="atlas.js"></script>
@@ -524,13 +527,42 @@ const isTouch = ('ontouchstart' in window) || Math.min(innerWidth, innerHeight) 
 })();
 
 // 横竖屏 / 窗口变化时把画布塞进屏幕（保持 16:9）
+function viewportH(){
+  const vv = window.visualViewport;
+  return Math.round((vv && vv.height) || innerHeight);
+}
+function viewportW(){
+  const vv = window.visualViewport;
+  return Math.round((vv && vv.width) || innerWidth);
+}
 function fitCanvas(){
-  const sc = Math.min(innerWidth / CW, innerHeight / CH);
+  const wrap = document.getElementById('wrap');
+  const H = viewportH(), W = viewportW();
+  wrap.style.height = H + 'px';                 // 用实测可视高度，别用 100vh
+  wrap.style.width = W + 'px';
+  const sc = Math.min(W / CW, H / CH);
   cv.style.width = Math.round(CW * sc) + 'px';
   cv.style.height = Math.round(CH * sc) + 'px';
 }
 addEventListener('resize', fitCanvas);
-addEventListener('orientationchange', ()=> setTimeout(fitCanvas, 120));
+addEventListener('orientationchange', ()=> setTimeout(fitCanvas, 150));
+if (window.visualViewport){
+  visualViewport.addEventListener('resize', fitCanvas);
+  visualViewport.addEventListener('scroll', fitCanvas);
+}
+
+function setupFullscreen(){
+  const btn = document.getElementById('fs');
+  if (!btn) return;
+  if (isTouch) btn.style.display = 'block';
+  btn.addEventListener('click', ()=>{
+    const el = document.documentElement;
+    if (document.fullscreenElement){ document.exitFullscreen(); return; }
+    if (el.requestFullscreen) el.requestFullscreen().then(fitCanvas).catch(()=>{});
+    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+  });
+  document.addEventListener('fullscreenchange', ()=> setTimeout(fitCanvas, 120));
+}
 
 const bullets = [], sparks = [], dusts = [], floats = [];
 function floatText(x, y, text, color){ floats.push({x, y, text, color: color || '#2b2926', t: 0}); }
@@ -1833,6 +1865,7 @@ function loop(now){
 
 tryExternalBgm();
 fitCanvas();
+setupFullscreen();
 
 preload(()=>{
   if (window.__started) return;
