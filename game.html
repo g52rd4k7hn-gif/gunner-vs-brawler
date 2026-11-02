@@ -1233,7 +1233,24 @@ function aiStep(dt){
   p2.face = faceTo;
   const d = Math.abs(p1.x - p2.x);
 
-  if (p2.reloading > 0) return;                      // 换弹中：不动不打
+  if (p2.reloading > 0){                              // 换弹中：边退边装，别站桩
+    if (d < 420){ p2.x -= faceTo * 240 * dt; p2.set('retreat'); }
+    return;
+  }
+  // 对方在挥击/硬直：立刻补一枪（抓到空档）
+  if (fireCd <= 0 && d > 180 && (p1.state === 'swing2' || p1.stun > 0)){
+    const dy2 = (GROUND - 250 - (p1.y||0)) - (GROUND - 126 - (p2.y||0));
+    const deg2 = Math.atan2(dy2, Math.abs(p1.x - p2.x)) * 180 / Math.PI;
+    let t2 = 'P0';
+    if (deg2 < -40) t2 = 'M55'; else if (deg2 < -12) t2 = 'M25'; else if (deg2 > 9) t2 = 'P18';
+    p2.set('fire' + t2, {force:true}); fireCd = 1.35;
+    return;
+  }
+  // 贴脸且枪已上膛：先退半步再打（风筝）
+  if (d < 240 && fireCd <= 0 && p2.reloading <= 0 && Math.random() < 0.5){
+    p2.x -= faceTo * 300 * dt; p2.set('retreat');
+    return;
+  }
 
   // 看到飞来的子弹就跳
   for (const b of bullets){
@@ -1248,7 +1265,8 @@ function aiStep(dt){
   if ((p1.state === 'swing' || p1.state === 'swing2') && Math.abs(p1.x - p2.x) < 230){
     const r = Math.random();
     if (dodgeCd <= 0 && r < 0.30){ p2.set('dodge', {force:true}); dodgeCd = 1.4; return; }
-    if (blockCd <= 0 && r < 0.62){ p2.set('block', {force:true}); blockCd = 1.1; p2.blockT = 0.55; return; }
+    const heavyThreat = (p1.state === 'swing2');
+    if (blockCd <= 0 && (r < (heavyThreat ? 0.85 : 0.62))){ p2.set('block', {force:true}); blockCd = 1.1; p2.blockT = 0.55; return; }
   }
   // 贴身计时：连续 3 秒被压着 → 立刻大跳后撤 200
   if (closeT > 3){
@@ -1268,17 +1286,26 @@ function aiStep(dt){
     return;
   }
 
-  if (d < 190){                       // 贴脸：一半概率抡枪托，一半后撤
-    if (attackCd <= 0 && Math.random() < 0.55){
-      p2.set(Math.random() < 0.5 ? 'club' : 'club2', {force:true});
-      attackCd = 1.15;
+  if (d < 190){                       // 贴脸：能开枪就顶着打，否则枪托/后撤
+    if (fireCd <= 0 && p2.reloading <= 0 && Math.random() < 0.55){
+      p2.set('fireP0', {force:true}); fireCd = 1.5;
       return;
     }
-    p2.x -= faceTo * 190 * dt;
+    if (attackCd <= 0 && Math.random() < 0.5){
+      p2.set(Math.random() < 0.5 ? 'club' : 'club2', {force:true});
+      attackCd = 1.05;
+      return;
+    }
+    if (d < 110 && closeT > 1.2){       // 被逼死角：后跳脱身
+      p2.leapT = 0.9; p2.leapDir = -faceTo; p2.leapX0 = p2.x; p2.leapShot = false;
+      p2.set('leap', {force:true}); closeT = 0;
+      return;
+    }
+    p2.x -= faceTo * 300 * dt;
     p2.set('retreat');
     return;
   }
-  if (fireCd <= 0 && d > 190){        // 射程内：按仰角选一套（枪是烤进帧里的）
+  if (fireCd <= 0 && d > 120){        // 射程内：按仰角选一套（枪是烤进帧里的）
     const dy = (GROUND - 250 - (p1.y||0)) - (GROUND - 126 - (p2.y||0));
     const deg = Math.atan2(dy, Math.abs(p1.x - p2.x)) * 180 / Math.PI;
     let tag = 'P0';
@@ -1604,7 +1631,10 @@ function gunnerInput(dt){
 }
 
 // ── AI 操控打手 ──
+let slideAiCd = 0;
 function aiBrawler(dt){
+  if (slideAiCd > 0) slideAiCd -= dt;
+  if (dodgeCd > 0) dodgeCd -= dt;
   const f = p1, t = p2;
   if (f.stun > 0 || over || f.reviving > 0) return;
   if (f.downed) return;                                     // 最后的反击：倒地无法行动
@@ -1635,8 +1665,31 @@ function aiBrawler(dt){
     sfx('charge');
     return;
   }
-  if (d > 200){ f.x += f.face * 210 * dt; f.set('walk'); return; }
-  if (attackCd <= 0){ f.set(Math.random() < 0.35 ? 'swing2' : 'swing', {force:true}); attackCd = 0.9; return; }
+  // 抓换弹空档：贴上去打
+  if (p2.reloading > 0 && d > 120){
+    f.x += f.face * 330 * dt;
+    f.set('run');
+    return;
+  }
+  // 中距离：滑铲贴脸（460px）
+  if (d > 300 && d < 560 && f.slideT <= 0 && slideAiCd <= 0){
+    f.set('slide', {force:true});
+    f.slideT = DODGE_TIME; f.slideVx = f.face * (2 * DODGE_DIST / DODGE_TIME);
+    f.invuln = DODGE_INVULN; slideAiCd = 2.6;
+    sfx('land');
+    return;
+  }
+  // 枪口抬起来瞄你了：左右横移别站桩
+  if (/^aim/.test(p2.state) && d < 420 && dodgeCd <= 0 && Math.random() < 0.35){
+    f.x -= f.face * 260 * dt; f.set('retreat'); dodgeCd = 0.9;
+    return;
+  }
+  if (d > 200){ f.x += f.face * 230 * dt; f.set('walk'); return; }
+  if (attackCd <= 0){
+    f.set(Math.random() < 0.4 ? 'swing2' : 'swing', {force:true});
+    attackCd = 0.75;
+    return;
+  }
   f.set('idle');
 }
 
@@ -2730,6 +2783,30 @@ preload(()=>{
       } catch(e){ out.push('ERR ' + e.message); }
       document.title = 'GUNROLE ' + out.join(' | ');
     }, 900);
+  }
+  if (new URLSearchParams(location.search).get('test') === 'ai'){
+    setTimeout(()=>{
+      const out = [];
+      try {
+        resetRound(); over = false; gameStarted = true;
+        const hp0 = p1.hp + p2.hp;
+        let swings = 0, shots = 0, leaps = 0;
+        for (let i = 0; i < 900; i++){               // 18 秒
+          hitstop = 0; step(0.02);
+          if (p1.state === 'swing' || p1.state === 'swing2') swings++;
+          if (/^fire/.test(p2.state)) shots++;
+          if (p2.state === 'leap') leaps++;
+          if (over) break;
+        }
+        const dealt = hp0 - (p1.hp + p2.hp);
+        out.push(`总伤害=${Math.round(dealt)}`);
+        out.push(`木易挥击帧=${swings}`);
+        out.push(`枪手开火帧=${shots}`);
+        out.push(`枪手后跳帧=${leaps}`);
+        out.push(`结果:${over ? '分出胜负' : '仍在战斗'}`);
+      } catch(e){ out.push('ERR ' + e.message); }
+      document.title = 'AI ' + out.join(' | ');
+    }, 800);
   }
   if (new URLSearchParams(location.search).get('test') === 'jumpdist'){
     setTimeout(()=>{
