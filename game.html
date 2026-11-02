@@ -31,7 +31,7 @@
   #touch button:active{background:#ffffff33;transform:scale(.94)}
   #touch .stick{
     position:absolute;left:calc(12px + env(safe-area-inset-left));
-    bottom:calc(12px + env(safe-area-inset-bottom));
+    bottom:calc(76px + env(safe-area-inset-bottom));
     width:116px;height:116px;pointer-events:auto;touch-action:none;z-index:2;
   }
   #touch .stick .ring{
@@ -163,7 +163,7 @@ const imgCache = {};
 let musketImg = new Image();
 const ACT = Object.keys(SPRITES);
 const DMG = {
-  brawlerSwing: 8,     // 打手横扫
+  brawlerSwing: 100,   // 打手横扫
   brawlerHeavy: 200,   // 打手重击（固定 200）
   chargeBonus: 8,      // 蓄满额外
   gunRanged: 100,      // 枪手普通攻击（固定 100）
@@ -284,7 +284,8 @@ class Fighter{
     this.state = s; this.frame = 0; this.t = 0; this.hitDone = false;
   }
   update(dt){
-    this.t += dt;
+    const rate = (this.state === 'swing') ? 1.7 : 1;   // 普攻播放加快
+    this.t += dt * rate;
     const sp = SPRITES[this.act];
     this.frame = sp.loop ? Math.floor(this.t*FPS) % sp.n : Math.min(sp.n-1, Math.floor(this.t*FPS));
     if (this.stun > 0) this.stun -= dt;
@@ -303,12 +304,12 @@ function applyDamage(t, dmg, dir){
       real = 0;
       const heal = dmg * 0.5;
       p1.hp = Math.min(p1.maxHp, p1.hp + heal);
-      p1.takenTotal = Math.min(SK.counterCap, p1.takenTotal + dmg);
+      p1.takenTotal = Math.min(counterCap(), p1.takenTotal + dmg);
       log = '偶数 · 免疫 + 回血 + 存池';
       floatText(t.x, GROUND - BODY_H - 20, `免疫 +${Math.round(heal)} · 存 ${Math.round(dmg)}`, '#2fa85a');
     } else {                                       // 奇数：吃一半伤害，双倍原始伤害存池
       real = dmg * 0.5;
-      p1.takenTotal = Math.min(SK.counterCap, p1.takenTotal + dmg * 2);
+      p1.takenTotal = Math.min(counterCap(), p1.takenTotal + dmg * 2);
       log = '奇数 · 半伤 + 双倍存池';
       floatText(t.x, GROUND - BODY_H - 20, `奇数 · 存 ${Math.round(dmg * 2)}`, '#c0392b');
     }
@@ -327,6 +328,8 @@ function applyDamage(t, dmg, dir){
   t.set(t.hp <= 0 ? 'ko' : 'hit', {force:true});
   if (t.hp <= 0) onDown(t);
 }
+
+function counterCap(){ return SK.counterBaseCap + Math.max(0, p2.shield || 0); }
 
 // 还击对护盾：护盾按比例吃伤害（盾越多挡得越多）
 function applyCounterDamage(t, amount, dir){
@@ -393,7 +396,7 @@ const SK = {
   frenzyTrigger: 0.45,      // 血量低于 45% 触发
   endureEven: 0.5,          // 承受：偶数概率（骰子）
   counterReady: 5.0,        // 还击冷却
-  counterCap: 1000,         // 反击池上限
+  counterBaseCap: 2000,     // 反击池基础上限（+ 枪手当前护盾）
   frenzyDur: 12,            // 狂化持续时间
   frenzyCd: 30,             // 狂化冷却
   reviveTime: 5,            // 不朽：复活读条 5 秒
@@ -914,10 +917,21 @@ function hitProps(a){
     if (Math.abs(pr.x - a.x) > 130) continue;
     if (Math.abs((GROUND - pr.y) - (GROUND - a.y)) > 140) continue;
     sfx('prop');
-    pr.vx = a.face * (520 + Math.random()*260);
-    pr.vy = 620 + Math.random()*220;
-    pr.spin = (Math.random() - .5) * 14;
-    pr.life = 2.4;
+    if (a.state === 'swing2'){                      // 重击：物件变成直线弹道，飞向枪手
+      const tx = p2.x, ty = CHEST + (p2.y || 0);
+      const dx = tx - pr.x, dy = ty - pr.y;
+      const L = Math.hypot(dx, dy) || 1;
+      pr.projectile = true; pr.dmg = DMG.brawlerHeavy;
+      pr.vx = dx / L * 1500; pr.vy = dy / L * 1500;
+      pr.spin = 18; pr.life = 3;
+      sfx('shot');
+    } else {
+      pr.projectile = false;
+      pr.vx = a.face * (520 + Math.random()*260);
+      pr.vy = 620 + Math.random()*220;
+      pr.spin = (Math.random() - .5) * 14;
+      pr.life = 2.4;
+    }
     sparks.push({x: pr.x, y: GROUND - pr.y, t: 0});
   }
 }
@@ -942,6 +956,27 @@ function propHits(){
 function updateProps(dt){
   for (const pr of PROPS){
     if (!pr.alive) continue;
+    if (pr.projectile){                       // 直线弹道：不受重力，命中枪手
+      pr.x += pr.vx * dt; pr.y += pr.vy * dt;
+      pr.rot += pr.spin * dt;
+      pr.life -= dt;
+      if (Math.abs(pr.x - p2.x) < 60 && Math.abs(pr.y - (CHEST + (p2.y||0))) < 70 && p2.hp > 0){
+        applyDamage(p2, pr.dmg, Math.sign(pr.vx) || 1);
+        // 若还击已就绪，直接引爆反击池
+        if (p1.counterCd <= 0 && p1.takenTotal > 0){
+          const extra = Math.round(p1.takenTotal);
+          p1.takenTotal = 0; p1.counterCd = SK.counterReady;
+          applyCounterDamage(p2, extra, Math.sign(pr.vx) || 1);
+          showSkill('还击（物件引爆）！', '+' + extra, '#3c8ce0');
+          flash = Math.max(flash, .25); shake = Math.max(shake, 16);
+        }
+        pr.alive = false;
+        hitstop = Math.max(hitstop, .1); shake = Math.max(shake, 16); flash = Math.max(flash, .22);
+        sparks.push({x: p2.x, y: GROUND - CHEST, t: 0, big: true, rgba: 'rgba(255,180,60,'});
+      }
+      if (pr.life <= 0 || pr.x < 0 || pr.x > WORLD || pr.y < -100){ pr.alive = false; }
+      return;
+    }
     if (pr.vx || pr.vy || pr.y > 0){
       pr.vy -= 1700 * dt;
       pr.x += pr.vx * dt;
@@ -1205,21 +1240,40 @@ async function regress(){
   checkHit(p1, p2, {swing:[0,1]}, 10, ()=> true);      // 模拟一次命中
   const counterWorks = p1.takenTotal === 0 && p1.counterCd > 0;   // 池已引爆 + 进入冷却
   // 复活冲击波：把打手打飞 1000
-  p2.immortalCd = 0; p2.reviving = 0; p2.hp = 5; p1.hp = 99999;
-  p1.x = p2.x - 200; p1.knockT = 0; p1.state = 'idle';
-  applyDamage(p2, 50, 1);
-  let kwaited = 0;
-  while (p2.reviving > 0 && kwaited < 8000){ await sleep(200); kwaited += 200; }
-  const knockStarted = p1.knockT > 0 || p1.state === 'leap' || p1.y > 10;
+  p2.immortalCd = 0; p2.reviving = 0; p2.shield = 0; p2.frenzy = false;
+  p1.hp = 99999; p1.x = p2.x - 200; p1.knockT = 0; p1.state = 'idle';
   const kx0 = p1.x;
-  await sleep(600);
+  p2.hp = 0;
+  onDown(p2);                                  // 直接触发不朽复活
+  const entered = p2.reviving > 0;
+  p2.reviving = 0.05;                          // 快进到读条末尾
+  for (let i = 0; i < 12; i++) await sleep(50);
   const knockDist = Math.abs(p1.x - kx0);
-  ok('knockback', knockStarted && knockDist > 300, 'd' + Math.round(knockDist));
+  ok('knockback', entered && (window.__knockCount || 0) > 0 && knockDist > 300, 'd' + Math.round(knockDist) + ',n' + (window.__knockCount||0));
   p1.takenTotal = 0;
   for (let i = 0; i < 30; i++){ applyDamage(p1, 200, 1); p1.stun = 0; }
-  ok('cap', p1.takenTotal <= SK.counterCap, 'pool' + Math.round(p1.takenTotal));
+  ok('cap', p1.takenTotal <= counterCap(), 'pool' + Math.round(p1.takenTotal) + '/' + counterCap());
   ok('skills', revived && frenzied && endureWorks && counterWorks,
      `rev${reviveHp},fz${frenzied ? 1 : 0},en${endureWorks ? 1 : 0},ctr${counterWorks ? 1 : 0}`);
+
+  // 重击打飞物件：物件变弹道，命中枪手造成重击伤害（用合成攻击者，避免玩家状态干扰）
+  let perr = '';
+  PROPS.forEach(pr => { pr.projectile = false; pr.alive = false; });
+  const prop = PROPS[0];
+  prop.alive = true; prop.x = 8100; prop.y = 0; prop.vx = prop.vy = 0; prop.projectile = false;
+  p2.x = 8700; p2.y = 0; p2.shield = 0; p2.hp = p2.maxHp; p2.invuln = 0; p2.testFreeze = true;
+  try {
+    const fake = { state: 'swing2', act: 'bat_swing_v', t: 0.35, x: 8000, y: 0, face: 1 };
+    hitProps(fake);
+  } catch(e){ perr = e.message; }
+  const armed = PROPS.some(pr => pr.projectile === true);
+  const shooter = PROPS.find(pr => pr.projectile === true);
+  for (let i = 0; i < 40; i++){ await sleep(50); if (shooter && !shooter.alive) break; }
+  const propHit = p2.hp < p2.maxHp;
+  p2.testFreeze = false;
+  ok('propShot', armed && propHit, `arm${armed?1:0},hp${Math.round(p2.hp)},act${p1.act},u${_u.toFixed(2)},st${p1.state}`);
+  PROPS.forEach(pr => { pr.projectile = false; pr.alive = true; pr.vx = pr.vy = 0; });
+  p1.state = 'idle'; p1.t = 0;
 
   // 蓄能弹：狂化结束后下一发穿平台、速度×3、伤害×3^n
   p2.testFreeze = true; p2.frenzy = true; p2.frenzyLeft = 12; p2.chargeDmg = 300; p2.frenzyCount = 1;
@@ -1375,6 +1429,7 @@ function step(dt){
         p1.knockDir = Math.sign(p1.x - p2.x) || 1;
         p1.knockX0 = p1.x;
         p1.set('leap', {force:true});
+        window.__knockCount = (window.__knockCount || 0) + 1;
         p1.invuln = Math.max(p1.invuln, 0.3);
         shake = Math.max(shake, 26); flash = Math.max(flash, .35);
         boom(p2.x, GROUND - CHEST, 320, 'rgba(178,60,255,');
@@ -1859,7 +1914,7 @@ function loop(now){
   ctx.fillText(`枪手  不朽 ${cd1} · 狂化 ${cd2} · 盾 ${Math.round(p2.shield || 0)}`, 20, CH - 58);
   const cd3 = p1.counterCd > 0 ? Math.ceil(p1.counterCd) + 's' : (p1.takenTotal > 0 ? '就绪·下一击引爆' : '就绪');
   ctx.fillStyle = 'rgba(50,60,80,.75)';
-  ctx.fillText(`打手  还击 ${cd3} · 反击池 ${Math.round(p1.takenTotal)}/${SK.counterCap}`, 20, CH - 38);
+  ctx.fillText(`打手  还击 ${cd3} · 反击池 ${Math.round(p1.takenTotal)}/${counterCap()}`, 20, CH - 38);
   ctx.restore();
   if (combo >= 3){
     ctx.save();
@@ -1907,6 +1962,22 @@ preload(()=>{
       window.__leapTest.maxDx = Math.max(window.__leapTest.maxDx, Math.abs(p2.x - p1.x));
       document.title = `LEAPTEST leaps=${window.__leapTest.leaps} moved=${(p2.leapMoved||0).toFixed(0)} maxY=${(window.__maxLeapY||0).toFixed(0)} shots=${window.__shotCount||0} p2=${p2.state}`;
     }, 200);
+  }
+  if (new URLSearchParams(location.search).get('test') === 'prop'){
+    setTimeout(()=>{
+      const out = [];
+      try {
+        PROPS.forEach(pr => { pr.alive = false; pr.projectile = false; });
+        const pr = PROPS[0];
+        p2.x = 8600; p2.y = 0; p2.hp = p2.maxHp; p2.shield = 0; p2.invuln = 0; p2.testFreeze = true;
+        pr.alive = true; pr.x = 8000; pr.y = 0; pr.vx = 0; pr.vy = 0; pr.projectile = false;
+        hitProps({ state: 'swing2', act: 'bat_swing_v', t: 0.35, x: 8000, y: 0, face: 1 });
+        out.push('变成弹道=' + (pr.projectile ? 1 : 0));
+        for (let i = 0; i < 60 && pr.alive; i++) updateProps(0.02);
+        out.push('命中后枪手血=' + Math.round(p2.hp) + '/弹道存活=' + (pr.alive ? 1 : 0));
+      } catch(e){ out.push('ERR ' + e.message); }
+      document.title = 'PROP ' + out.join(' | ');
+    }, 600);
   }
   if (new URLSearchParams(location.search).get('test') === 'stick'){
     setTimeout(()=>{
