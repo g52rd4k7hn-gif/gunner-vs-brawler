@@ -1647,6 +1647,7 @@ function gunnerInput(dt){
 function aiBrawler(dt){
   const f = p1, t = p2;
   if (f.stun > 0 || over || f.reviving > 0) return;
+  if (f.forcePhase || f.pullT > 0) return;                 // 全力期间锁定，只能做这个动作
   if (['swing','swing2','hit','ko','dodge','pull','parry'].includes(f.state)) return;
   const d = Math.abs(t.x - f.x);
   f.face = t.x > f.x ? 1 : -1;
@@ -1853,6 +1854,9 @@ function step(dt){
   if (p1.forcePhase){
     const t = p2;
     p1.forceT -= dt;
+    if (p1.forcePhase === 1 || p1.forcePhase === 2){
+      if (p1.state !== 'pull') p1.set('pull', {force:true});   // 动作循环，不中断
+    }
     if (p1.forcePhase === 1){                      // 预警
       if (Math.random() < 0.35)
         sparks.push({x: p1.x + (Math.random()*2-1)*90, y: GROUND - 40 - Math.random()*180, t: 0, big: false, rgba: 'rgba(160,80,255,'});
@@ -2558,6 +2562,8 @@ preload(()=>{
             if (p1.forcePhase === 2) pullSeen = true;
             if (p1.forcePhase === 0 && warnSeen && pullSeen) break;
           }
+          // 全力期间打手不应有其它动作
+          ok('forceLock', p1.forcePhase === 0 || p1.state === 'pull' || p1.state === 'swing2', 'st_' + p1.state);
           ok('forceWeak', warnSeen && pullSeen && p2.hp < p2.maxHp,
              `warn${warnSeen?1:0},pull${pullSeen?1:0},d${Math.round(Math.abs(p2.x-x0))},hp${Math.round(p2.hp)}`);
         }
