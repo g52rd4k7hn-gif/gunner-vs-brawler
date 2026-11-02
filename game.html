@@ -13,11 +13,11 @@
     display:flex;gap:12px;align-items:flex-start;color:#eee;font-size:13px;pointer-events:none}
   #hud .side{flex:1;display:flex;flex-direction:column;gap:4px}
   #hud .cools{display:flex;flex-direction:column;gap:3px}
-  #hud .cool{display:flex;align-items:center;gap:6px;font-size:10px;color:#ffffffcf;letter-spacing:.02em}
-  #hud .cool .lab{min-width:44px;text-align:left;opacity:.85}
-  #hud .side.right .cool{flex-direction:row-reverse}
+  #hud .cool{display:flex;flex-direction:column;gap:2px;font-size:9.5px;color:#ffffffd0;letter-spacing:.02em}
+  #hud .cool .lab{opacity:.9;line-height:1.2}
   #hud .side.right .cool .lab{text-align:right}
-  #hud .cool .trk{flex:1;height:5px;border-radius:3px;background:#ffffff26;overflow:hidden}
+  #hud .cool .trk{width:100%;height:9px;border-radius:5px;background:#ffffff26;overflow:hidden;
+    box-shadow:inset 0 0 0 1px #ffffff1a}
   #hud .cool .trk i{display:block;height:100%;width:0%;background:#8ee0a0;transition:width .08s linear}
   #hud .cool.ready .trk i{background:#6fd0ff}
   #hud .cool.charge .trk i{background:#ff5a46}
@@ -683,7 +683,7 @@ function buildCools(){
     for (const [lab] of COOL_DEF[side]){
       const row = document.createElement('div');
       row.className = 'cool';
-      row.innerHTML = `<span class="lab">${lab}</span><span class="trk"><i></i></span>`;
+      row.innerHTML = `<span class="trk"><i></i></span><span class="lab">${lab}</span>`;
       box.appendChild(row);
     }
   }
@@ -701,6 +701,13 @@ function updateCools(){
       if (fill) fill.style.width = (v * 100).toFixed(0) + '%';
       row.classList.toggle('ready', v >= 0.999);
       row.classList.toggle('charge', lab === '蓄能' && p2.chargeAt > 0);
+      const lb = row.querySelector('.lab');
+      if (!lb) return;
+      if (lab === '还击')      lb.textContent = p1.counterCd > 0 ? `还击 ${p1.counterCd.toFixed(1)}s` : '还击 就绪';
+      else if (lab === '反击池') lb.textContent = `反击池 ${Math.round(p1.takenTotal)}/${counterCap()}`;
+      else if (lab === '不朽')  lb.textContent = p2.immortalCd > 0 ? `不朽 ${Math.ceil(p2.immortalCd)}s` : '不朽 就绪';
+      else if (lab === '狂化')  lb.textContent = p2.frenzy ? '狂化中' : (p2.frenzyCd > 0 ? `狂化 ${Math.ceil(p2.frenzyCd)}s` : '狂化 就绪');
+      else if (lab === '蓄能')  lb.textContent = p2.chargeAt > 0 ? `蓄能预备 ${p2.chargeAt.toFixed(1)}s` : (p2.frenzy ? '蓄能 待定' : '蓄能 无');
     });
   }
 }
@@ -2172,6 +2179,20 @@ preload(()=>{
       window.__leapTest.maxDx = Math.max(window.__leapTest.maxDx, Math.abs(p2.x - p1.x));
       document.title = `LEAPTEST leaps=${window.__leapTest.leaps} moved=${(p2.leapMoved||0).toFixed(0)} maxY=${(window.__maxLeapY||0).toFixed(0)} shots=${window.__shotCount||0} p2=${p2.state}`;
     }, 200);
+  }
+  if (new URLSearchParams(location.search).get('test') === 'bar'){
+    setTimeout(()=>{
+      const c2 = document.getElementById('cool2');
+      const row = c2 && c2.children[2];
+      const trk = row && row.querySelector('.trk');
+      const lab = row && row.querySelector('.lab');
+      p2.chargeAt = 0.8; p2.chargeTotal = 3; updateCools();
+      const lab2 = row && row.querySelector('.lab').textContent;
+      p2.frenzy = true; p2.chargeAt = 0; updateCools();
+      const lab3 = row && row.querySelector('.lab').textContent;
+      document.title = 'BAR 高=' + (trk ? getComputedStyle(trk).height : '?')
+        + ' | 蓄能中:' + lab2 + ' | 狂化待发:' + lab3;
+    }, 900);
   }
   if (new URLSearchParams(location.search).get('test') === 'diff'){
     setTimeout(()=>{
